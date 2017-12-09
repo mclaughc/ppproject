@@ -1,0 +1,3 @@
+_splitter*.so
+_splitter*.pyd
+build/
