@@ -150,6 +150,40 @@ public:
     }
   }
 
+  // Python-wrapped versions of pop/peek/push.
+  template<typename ValueType>
+  void PyPush(const pybind11::tuple& samples)
+  {
+    if (samples.size() != m_channels)
+      throw new std::invalid_argument("samples contains an incorrect number of channels");
+    
+    if ((m_write_position * m_channels) == m_samples.size())
+      m_samples.resize(m_samples.size() + m_channels);
+    size_t out_pos = m_write_position * m_channels;
+    for (int i = 0; i < m_channels; i++)
+      m_samples[out_pos++] = SampleConversion::ConvertFrom<ValueType>(samples[i].cast<ValueType>());
+    m_write_position++;
+  }
+  template<typename ValueType>
+  pybind11::tuple PyPeek(int offset)
+  {
+    if (offset < 0 || (m_read_position + offset) >= m_write_position)
+      throw new std::invalid_argument("rpos + offset is past the buffer size");
+
+    pybind11::tuple res(m_channels);
+    size_t spos = (m_read_position + offset) * m_channels;
+    for (int i = 0; i < m_channels; i++)
+      res[i] = pybind11::cast(SampleConversion::ConvertTo<ValueType>(m_samples[spos++]));
+    return res;
+  }
+  template<typename ValueType>
+  pybind11::tuple PyPop()
+  {
+    auto res = PyPeek<ValueType>(0);
+    m_read_position++;
+    return res;
+  }
+
 private:
   std::vector<Sample> m_samples;
   size_t m_read_position = 0;
