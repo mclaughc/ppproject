@@ -64,7 +64,7 @@ public:
   }
 
   // Returns the number of frames remaining before the end of the buffer.
-  int GetRemainingFrames() { return m_write_position - m_read_position; }
+  int GetRemainingFrames() const { return m_write_position - m_read_position; }
 
   // Clears or sets the "end of stream" flag.
   bool IsEndOfStream() const { return m_end_of_stream; }
@@ -148,6 +148,18 @@ public:
         m_samples[out_pos++] = SampleConversion::ConvertFrom<ValueType>(samples[in_pos++]);
       m_write_position++;
     }
+  }
+
+  // Returns a pointer to the internally-formatted samples. Offsetting this pointer by zero
+  // results the first channel, by one the second, and so on. Valid values are only guaranteed
+  // until the last channel in a single frame. Use for high-speed access to the audio data,
+  // when format conversion is not necessary.
+  const Sample* GetPeekPointer(int offset) const
+  {
+    if (offset < 0 || (m_read_position + offset) >= m_write_position)
+      throw new std::runtime_error("rpos + offset is past the buffer size");
+
+    return &m_samples[size_t(offset) * m_channels];
   }
 
   // Python-wrapped versions of pop/peek/push.

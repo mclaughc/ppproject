@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 2.8.12)
 project(ppproject_native)
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules")
+
 # Detect C++ version support.
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   include(CheckCXXCompilerFlag)
@@ -26,10 +28,19 @@ add_subdirectory("../../dep/pybind11" "pybind11")
 # Set native folder as an include
 include_directories(${CMAKE_SOURCE_DIR})
 
+# Enable PIC globally so that we can link static libs against our python modules.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # Shared library
 add_subdirectory(shared)
 
-# Modules
-pybind11_add_module(samplebuffer samplebuffer.cpp)
+# samplebuffer module
+pybind11_add_module(samplebuffer MODULE samplebuffer.cpp)
 target_link_libraries(samplebuffer PRIVATE shared)
+
+# filereader module
+find_package(LibSndFile REQUIRED)
+pybind11_add_module(filereader MODULE filereader.cpp)
+target_include_directories(filereader PRIVATE ${LIBSNDFILE_INCLUDE_DIR})
+target_link_libraries(filereader PRIVATE shared ${LIBSNDFILE_LIBRARY})
 
