@@ -44,3 +44,10 @@ pybind11_add_module(filereader MODULE filereader.cpp)
 target_include_directories(filereader PRIVATE ${LIBSNDFILE_INCLUDE_DIR})
 target_link_libraries(filereader PRIVATE shared ${LIBSNDFILE_LIBRARY})
 
+# spectrogram module
+find_package(Cairo REQUIRED)
+find_package(FFTW REQUIRED)
+pybind11_add_module(spectrogram MODULE spectrogram.cpp)
+target_include_directories(spectrogram PRIVATE ${CAIRO_INCLUDE_DIRS} ${FFTW_INCLUDES})
+target_link_libraries(spectrogram PRIVATE shared ${CAIRO_LIBRARIES} ${FFTW_LIBRARIES})
+
