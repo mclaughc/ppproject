@@ -17,11 +17,8 @@ class Pipeline:
     # Start with a done flag of true, we'll clear it if anything isn't done.
     is_done = True
     for stage in self.stages:
-      # Run the stage if it isn't complete yet.
-      if (not stage.is_done()):
-        stage.run()
-
-      # Adjust done flag if needed.
+      # Run the stage, and adjust done flag if needed.
+      stage.run()
       if (not stage.is_done()):
         is_done = False
       else:
@@ -47,7 +44,7 @@ class PipelineStage:
     a name based on the string representation of the object will be generated."""
     # Give a name based on the pointer if one wasn't specified.
     if (len(name) == 0):
-      self.name = str.format("filter_%s", repr(self))
+      self.name = str.format("filter_%s" % (repr(self)))
     else:
       self.name = name
 

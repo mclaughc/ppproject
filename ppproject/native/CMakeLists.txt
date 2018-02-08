@@ -38,11 +38,11 @@ add_subdirectory(shared)
 pybind11_add_module(samplebuffer MODULE samplebuffer.cpp)
 target_link_libraries(samplebuffer PRIVATE shared)
 
-# filereader module
+# audiofile module
 find_package(LibSndFile REQUIRED)
-pybind11_add_module(filereader MODULE filereader.cpp)
-target_include_directories(filereader PRIVATE ${LIBSNDFILE_INCLUDE_DIR})
-target_link_libraries(filereader PRIVATE shared ${LIBSNDFILE_LIBRARY})
+pybind11_add_module(audiofile MODULE audiofile.cpp)
+target_include_directories(audiofile PRIVATE ${LIBSNDFILE_INCLUDE_DIR})
+target_link_libraries(audiofile PRIVATE shared ${LIBSNDFILE_LIBRARY})
 
 # spectrogram module
 find_package(Cairo REQUIRED)

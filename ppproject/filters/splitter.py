@@ -13,6 +13,7 @@ class Splitter(AudioFilter):
   overlap_frames = 0
   chunk_frames = 0
   chunk_frames_remaining = 0
+  next_segment_number = 1
   ready = False
 
   def __init__(self, split_length = 10.0, overlap_duration = 0.0, name = ""):
@@ -65,6 +66,7 @@ class Splitter(AudioFilter):
     
     # Create an output channel with the same format as the input channel.
     self.output_channel = AudioChannel(self.input_channel.get_sample_rate(), self.input_channel.get_channels())
+    self.output_channel.get_metadata().set_property("segment-number", self.next_segment_number)
     self.ready = True
 
     # Determine chunk size in frames
@@ -103,10 +105,13 @@ class Splitter(AudioFilter):
     logger.debug("removed %d frames", frames_removed)
 
     # Do we have a complete chunk?
-    if (self.chunk_frames_remaining == 0):
+    if (self.chunk_frames_remaining == 0 or end_of_input):
       # Set the end-of-stream flag. We'll remove this next time around.
       logger.debug("pushing chunk")
       self.output_channel.set_end_of_stream()
-      self.chunk_frames_remaining = self.chunk_frames
+      if (self.chunk_frames_remaining == 0):
+        self.chunk_frames_remaining = self.chunk_frames
+        self.output_channel.get_metadata().set_property("segment-number", self.next_segment_number)
+        self.next_segment_number += 1
     else:
       self.output_channel.clear_end_of_stream()

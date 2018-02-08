@@ -23,10 +23,6 @@ public:
   bool IsOpen() const { return m_file != nullptr; }
   void Close();
 
-  // Chunked reading.
-  bool IsChunked() const { return m_chunk_size > 0; }
-  void SetChunkSize(int chunk_size = 1) { m_chunk_size = info.samplerate * chunk_size; }
-
   // Accessors.
   const std::string& GetFileName() const { return m_filename; }
   int GetSampleRate() const { return info.samplerate; }
@@ -147,16 +143,103 @@ SampleBuffer* FileReader::ReadAll() const
   return buf.release();
 }
 
-namespace py = pybind11;
-PYBIND11_MODULE(filereader, m)
+// TODO: Output formats.
+class FileWriter
 {
-  m.def("open_file", &FileReader::OpenFile, py::arg("filename"));
+public:
+  ~FileWriter();
+
+  // Opens an existing file for writing.
+  static FileWriter* OpenFile(const std::string& filename, int sample_rate, int channels);
+
+  // Closes the file, preventing further operations.
+  bool IsOpen() const { return m_file != nullptr; }
+  void Close();
+
+  // Accessors.
+  const std::string& GetFileName() const { return m_filename; }
+  int GetSampleRate() const { return info.samplerate; }
+  int GetChannels() const { return info.channels; }
+  int64_t GetTotalFrames() const { return info.frames; }
+  double GetDuration() const { return info.frames / static_cast<double>(info.samplerate); }
+
+  // Writes the specified number of frames to the provided buffer.
+  // Returns the actual number of frames written.
+  int64_t WriteFrames(SampleBuffer* buf, int64_t count);
+
+  // Writes the entire buffer to the file.
+  int64_t WriteAll(SampleBuffer* buf);
+
+private:
+  FileWriter(const std::string& filename);
+  void CheckIsOpen();
+
+  std::string m_filename;
+  SNDFILE* m_file = nullptr;
+  SF_INFO info = {};
+  int64_t m_current_frame = 0;
+  int m_chunk_size = 0;
+};
+
+FileWriter::FileWriter(const std::string& filename) : m_filename(filename) {}
+
+FileWriter::~FileWriter()
+{
+  if (m_file)
+    sf_close(m_file);
+}
+
+void FileWriter::CheckIsOpen()
+{
+  if (!IsOpen())
+    throw std::runtime_error("Attempt to manipulate a FileWriter which is already closed.");
+}
+
+FileWriter* FileWriter::OpenFile(const std::string& filename, int sample_rate, int channels)
+{
+  std::unique_ptr<FileWriter> fr = std::unique_ptr<FileWriter>(new FileWriter(filename));
+  fr->info.format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
+  fr->info.samplerate = sample_rate;
+  fr->info.channels = channels;
+  fr->m_file = sf_open(filename.c_str(), SFM_WRITE, &fr->info);
+  if (!fr->m_file)
+    throw std::runtime_error(StringFromFormat("Failed to open %s: %s", filename.c_str(), sf_strerror(nullptr)));
+
+  return fr.release();
+}
+
+void FileWriter::Close()
+{
+  CheckIsOpen();
+  sf_close(m_file);
+  m_file = nullptr;
+}
+
+int64_t FileWriter::WriteFrames(SampleBuffer* buf, int64_t count)
+{
+  // TODO: Optimize this. Remove the extra copy.
+  std::unique_ptr<double[]> tmp = std::make_unique<double[]>(count * buf->GetChannels());
+  int64_t actual_count = buf->ReadFrames<double>(tmp.get(), static_cast<int>(count));
+  return sf_write_double(m_file, tmp.get(), actual_count);
+}
+
+int64_t FileWriter::WriteAll(SampleBuffer* buf)
+{
+  if (buf->GetSize() == 0)
+    return 0;
+
+  return WriteFrames(buf, buf->GetSize());
+}
+
+namespace py = pybind11;
+PYBIND11_MODULE(audiofile, m)
+{
+  m.def("open_file_reader", &FileReader::OpenFile, py::arg("filename"));
+  m.def("open_file_writer", &FileWriter::OpenFile, py::arg("filename"), py::arg("sample_rate"), py::arg("channels"));
 
   py::class_<FileReader> filereader(m, "FileReader");
   filereader.def("is_open", &FileReader::IsOpen)
     .def("close", &FileReader::Close)
-    .def("is_chunked", &FileReader::IsChunked)
-    .def("set_chunk_size", &FileReader::SetChunkSize)
     .def("get_file_name", &FileReader::GetFileName)
     .def("get_sample_rate", &FileReader::GetSampleRate)
     .def("get_channels", &FileReader::GetChannels)
@@ -169,4 +252,15 @@ PYBIND11_MODULE(filereader, m)
     .def("seek_time", &FileReader::SeekTime)
     .def("read_frames", &FileReader::ReadFrames)
     .def("read_all", &FileReader::ReadAll);
+
+  py::class_<FileWriter> filewriter(m, "FileWriter");
+  filewriter.def("is_open", &FileWriter::IsOpen)
+    .def("close", &FileWriter::Close)
+    .def("get_file_name", &FileWriter::GetFileName)
+    .def("get_sample_rate", &FileWriter::GetSampleRate)
+    .def("get_channels", &FileWriter::GetChannels)
+    .def("get_total_frames", &FileWriter::GetTotalFrames)
+    .def("get_duration", &FileWriter::GetDuration)
+    .def("write_frames", &FileWriter::WriteFrames)
+    .def("write_all", &FileWriter::WriteAll);
 }

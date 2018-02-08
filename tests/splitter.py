@@ -5,16 +5,19 @@ logging.basicConfig(format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s", 
 
 pipeline = ppproject.Pipeline()
 
-source = ppproject.sources.FileSource("tests/wavs/ibis.wav", name = "input")
-pipeline.add_stage(source)
+current = ppproject.sources.FileSource("tests/wavs/ibis.wav", name = "input")
+pipeline.add_stage(current)
 
-splitter = ppproject.filters.Splitter(2.0, 1.0, "splitter")
-splitter.set_input_channel("input", source.get_output_channel("output"))
-pipeline.add_stage(splitter)
+next = ppproject.filters.Splitter(2.0, 1.0, "splitter")
+next.set_input_channel("input", current.get_output_channel("output"))
+pipeline.add_stage(next)
+current = next
 
-sink = ppproject.outputs.NullOutput(name = "dummy sink")
-sink.set_input_channel(splitter.get_output_channel("output"))
-pipeline.add_stage(sink)
+#next = ppproject.outputs.NullOutput(name = "dummy sink")
+next = ppproject.outputs.FileOutput()
+next.set_input_channel("input", current.get_output_channel("output"))
+pipeline.add_stage(next)
+current = next
 
 #pipeline.run(5)
 pipeline.run_until_complete()

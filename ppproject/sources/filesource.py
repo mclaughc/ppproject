@@ -1,4 +1,4 @@
-from ppproject.native.filereader import open_file as open_file_reader
+from ppproject.native.audiofile import open_file_reader
 from ppproject.channels.audiochannel import AudioChannel
 from ppproject.metadata import Metadata
 from ppproject.pipeline import PipelineStage

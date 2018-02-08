@@ -10,15 +10,16 @@ class NullOutput(PipelineStage):
   ready = False
   done = False
 
-  def __init__(self, input_channel = None, name = ""):
+  def __init__(self, name = ""):
     super().__init__(name)
-    if (not isinstance(input_channel, type(None))):
-      self.set_input_channel(input_channel)
 
-  def set_input_channel(self, input_channel):
-    self.input_channel = input_channel
-    self.is_audio_input = isinstance(input_channel, AudioChannel)
-    logger.debug("input channel is '%s' (%s)", input_channel.get_name(), type(input_channel))
+  def set_input_channel(self, name, input_channel):
+    if (name == "input"):
+      self.input_channel = input_channel
+      self.is_audio_input = isinstance(input_channel, AudioChannel)
+      logger.debug("input channel is '%s' (%s)", input_channel.get_name(), type(input_channel))
+    else:
+      raise ValueError("unknown input %s" % (name))
 
   def pull_audio(self):
     buf = self.input_channel.get_buffer()
@@ -34,7 +35,7 @@ class NullOutput(PipelineStage):
     return self.name
 
   def make_ready(self):
-    if (type(self.input_channel) is None):
+    if (self.input_channel is None):
       raise RuntimeError("configured without input channel")
     self.ready = True
 
