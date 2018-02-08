@@ -7,5 +7,7 @@ from ppproject.native.spectrogram import render_to_file as render_spectrogram_to
 import ppproject.channels as channels
 import ppproject.sources as sources
 import ppproject.outputs as outputs
+import ppproject.filters as filters
 
-from ppproject.pipeline import Pipeline
+from ppproject.pipeline import Pipeline, PipelineStage
+from ppproject.filter import Filter, AudioFilter
