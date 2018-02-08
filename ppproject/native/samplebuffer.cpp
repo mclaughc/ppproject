@@ -6,10 +6,10 @@ PYBIND11_MODULE(samplebuffer, m)
 {
   py::class_<SampleBuffer> samplebuffer(m, "SampleBuffer");
   samplebuffer.def(py::init<int, int>())
-    .def("get_position", &SampleBuffer::GetPosition)
-    .def("set_position", &SampleBuffer::SetPosition)
+    .def("get_read_position", &SampleBuffer::GetReadPosition)
+    .def("get_write_position", &SampleBuffer::GetWritePosition)
+    .def("set_read_position", &SampleBuffer::SetReadPosition)
     .def("get_size", &SampleBuffer::GetSize)
-    .def("get_remaining_frames", &SampleBuffer::GetRemainingFrames)
     .def("push_float", &SampleBuffer::PyPush<float>)
     .def("peek_float", &SampleBuffer::PyPeek<float>)
     .def("pop_float", &SampleBuffer::PyPop<float>)

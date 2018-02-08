@@ -928,7 +928,7 @@ static bool is_good_speclen(int n)
 static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf, cairo_surface_t* surface)
 {
   const int samplerate = inbuf->GetSampleRate();
-  const int filelen = inbuf->GetRemainingFrames();
+  const int filelen = inbuf->GetSize();
   float** mag_spec = NULL; // Indexed by [w][h]
 
   double max_mag = 0.0;

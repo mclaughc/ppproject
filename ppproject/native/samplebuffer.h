@@ -1,6 +1,7 @@
 #pragma once
 #include "sampleconversion.h"
 #include <Python.h>
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -31,15 +32,15 @@ public:
   int GetChannels() const { return m_channels; }
 
   // Returns the "position", or how many frames have been read from the buffer.
-  int GetPosition() const { return m_read_position; }
+  int GetReadPosition() const { return m_read_position; }
 
   // Returns the "buffer size", or how many frames have been written to the
   // buffer
   // and can be consumed by a reader.
-  int GetSize() const { return m_write_position; }
+  int GetWritePosition() const { return m_write_position; }
 
   // Sets the read pointer, or position to the specified frame.
-  void SetPosition(int pos)
+  void SetReadPosition(int pos)
   {
     if (pos < 0 || pos > m_write_position)
       throw std::runtime_error("rpos is past the write position/buffer size");
@@ -64,7 +65,7 @@ public:
   }
 
   // Returns the number of frames remaining before the end of the buffer.
-  int GetRemainingFrames() const { return m_write_position - m_read_position; }
+  int GetSize() const { return m_write_position - m_read_position; }
 
   // Clears or sets the "end of stream" flag.
   bool IsEndOfStream() const { return m_end_of_stream; }
