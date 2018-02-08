@@ -1,6 +1,7 @@
 #pragma once
 #include "sampleconversion.h"
 #include <Python.h>
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
@@ -151,6 +152,36 @@ public:
     }
   }
 
+  // Copies frames from one buffer to another.
+  // TODO: Offset support.
+  int CopyFrames(SampleBuffer* dest, int num_frames)
+  {
+    if (dest->GetChannels() != m_channels)
+      throw std::invalid_argument("mismatching number of samples between buffers");
+
+    int frames_to_copy = std::min(GetSize(), num_frames);
+    size_t new_dest_size = dest->m_write_position + (size_t(frames_to_copy * m_channels));
+    if (new_dest_size > dest->m_samples.size())
+      dest->m_samples.resize(new_dest_size);
+
+    size_t start_index = m_read_position * m_channels;
+    size_t dest_start_index = dest->m_write_position * m_channels;
+    size_t samples_to_copy = size_t(frames_to_copy) * m_channels;
+    std::memcpy(&dest->m_samples[dest_start_index], &m_samples[start_index], sizeof(Sample) * samples_to_copy);
+    dest->m_write_position += samples_to_copy;
+    return frames_to_copy;
+  }
+
+  // Removes frames from this buffer, without reading them.
+  int RemoveFrames(int num_frames)
+  {
+    int frames_to_remove = std::min(GetSize(), num_frames);
+    m_read_position += frames_to_remove;
+    if (m_read_position >= (m_write_position / 2))
+      Shrink();
+    return frames_to_remove;
+  }
+
   // Returns a pointer to the internally-formatted samples. Offsetting this pointer by zero
   // results the first channel, by one the second, and so on. Valid values are only guaranteed
   // until the last channel in a single frame. Use for high-speed access to the audio data,
@@ -158,7 +189,7 @@ public:
   const Sample* GetPeekPointer(int offset) const
   {
     if (offset < 0 || (m_read_position + offset) >= m_write_position)
-      throw new std::runtime_error("rpos + offset is past the buffer size");
+      throw std::runtime_error("rpos + offset is past the buffer size");
 
     return &m_samples[size_t(offset) * m_channels];
   }
@@ -168,7 +199,7 @@ public:
   void PyPush(const pybind11::tuple& samples)
   {
     if (samples.size() != m_channels)
-      throw new std::invalid_argument("samples contains an incorrect number of channels");
+      throw std::invalid_argument("samples contains an incorrect number of channels");
     
     if ((m_write_position * m_channels) == m_samples.size())
       m_samples.resize(m_samples.size() + m_channels);
@@ -181,7 +212,7 @@ public:
   pybind11::tuple PyPeek(int offset)
   {
     if (offset < 0 || (m_read_position + offset) >= m_write_position)
-      throw new std::invalid_argument("rpos + offset is past the buffer size");
+      throw std::invalid_argument("rpos + offset is past the buffer size");
 
     pybind11::tuple res(m_channels);
     size_t spos = (m_read_position + offset) * m_channels;
