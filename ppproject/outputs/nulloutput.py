@@ -1,16 +1,17 @@
 from ppproject.channels.audiochannel import AudioChannel
+from ppproject.pipeline import PipelineStage
 
 import logging
 logger = logging.getLogger("NullOutput")
 
-class NullOutput:
+class NullOutput(PipelineStage):
   is_audio_input = False
   input_channel = None
   ready = False
   done = False
 
   def __init__(self, input_channel = None, name = ""):
-    self.name = name
+    super().__init__(name)
     if (not isinstance(input_channel, type(None))):
       self.set_input_channel(input_channel)
 
@@ -23,8 +24,7 @@ class NullOutput:
     buf = self.input_channel.get_buffer()
     num_frames = buf.get_size()
     logger.debug("dropping %d frames", num_frames)
-    for i in range(0, num_frames):
-      buf.pop_float()
+    buf.remove_frames(num_frames)
     return self.input_channel.end_of_stream()
 
   ######################################################################################################################

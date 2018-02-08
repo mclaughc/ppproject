@@ -1,6 +1,7 @@
 from ppproject.native.filereader import open_file as open_file_reader
 from ppproject.channels.audiochannel import AudioChannel
 from ppproject.metadata import Metadata
+from ppproject.pipeline import PipelineStage
 import math
 import logging
 
@@ -8,8 +9,9 @@ MINIMUM_CHUNK_LENGTH = 1.0
 MAXIMUM_CHUNK_LENGTH = 3600.0
 logger = logging.getLogger("FileSource")
 
-class FileSource:
+class FileSource(PipelineStage):
   def __init__(self, filename = "", chunk_size = 10.0, name = ""):
+    super().__init__(name)
     if (chunk_size < MINIMUM_CHUNK_LENGTH or chunk_size > MAXIMUM_CHUNK_LENGTH):
       raise ValueError("chunk_size must be between %f and %f" % (MINIMUM_CHUNK_LENGTH, MAXIMUM_CHUNK_LENGTH))
 
@@ -21,7 +23,6 @@ class FileSource:
     self.channels = 0
     self.sample_rate = 0
     self.chunk_size_frames = 0
-    self.name = name
 
   def set_filename(self, filename):
     if (len(filename) == 0):
@@ -73,9 +74,6 @@ class FileSource:
   ######################################################################################################################
   # Pipeline interface
   ######################################################################################################################
-  def get_name(self):
-    return self.name
-
   def get_output_channel(self, name):
     if (name == "output"):
       self.make_ready()

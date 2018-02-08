@@ -20,6 +20,10 @@ class AudioChannel:
     """Returns the sample rate of the audio streamed through this channel."""
     return self.sample_rate
 
+  def get_channels(self):
+    """Returns the number of channels for audio streamed through this channel."""
+    return self.channels
+
   def get_buffer(self):
     """Returns the buffer containing the samples streamed through this channel."""
     return self.buffer
@@ -43,3 +47,7 @@ class AudioChannel:
   def clear_end_of_stream(self):
     """Clears the end-of-stream flag, instructing future streams that a new file is being processed."""
     self.end_of_stream_flag = False
+
+  def is_empty_and_end_of_stream(self):
+    """Returns true when there are no frames in the buffer, and the end-of-stream flag is set."""
+    return (self.end_of_stream_flag and self.buffer.get_size() == 0)
