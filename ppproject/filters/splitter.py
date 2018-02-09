@@ -95,11 +95,12 @@ class Splitter(AudioFilter):
     frames_to_copy = min(self.chunk_frames_remaining, input_buf.get_size())
     frames_copied = input_buf.copy_frames(output_buf, frames_to_copy)
     assert(frames_copied == frames_to_copy)
-    logger.debug("copied %d frames", frames_copied)
     self.chunk_frames_remaining -= frames_to_copy
+    logger.debug("copied %d frames, %d frames remaining in chunk, %d in buffer",
+                 frames_copied, self.chunk_frames_remaining, input_buf.get_size())
 
     # How many frames do we pop, to preserve the overlap?
-    frames_to_remove = min(self.overlap_frames, input_buf.get_size())
+    frames_to_remove = min(self.overlap_frames, input_buf.get_size()) if self.overlap_frames > 0 else frames_to_copy
     frames_removed = input_buf.remove_frames(frames_to_remove)
     assert(frames_removed == frames_to_remove)
     logger.debug("removed %d frames", frames_removed)
