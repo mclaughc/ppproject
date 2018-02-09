@@ -1091,7 +1091,7 @@ static void render_cairo_surface(const RENDER* render, const SampleBuffer* inbuf
 }
 
 static void Py_render_to_file(SampleBuffer* buf, const std::string& filename, int width = 640, int height = 480,
-                              bool border = true, bool log_freq = false, bool greyscale = false, float min_freq = 0.0f,
+                              bool border = true, bool log_freq = false, bool grayscale = false, float min_freq = 0.0f,
                               float max_freq = 0.0f, float fft_freq = 0.0f, float dyn_range = 180.0f,
                               const std::string& window_func = "kaiser")
 {
@@ -1108,7 +1108,7 @@ static void Py_render_to_file(SampleBuffer* buf, const std::string& filename, in
   render.height = height;
   render.border = border;
   render.log_freq = log_freq;
-  render.gray_scale = greyscale;
+  render.gray_scale = grayscale;
   render.min_freq = min_freq;
   render.max_freq = max_freq;
   render.fft_freq = fft_freq;
@@ -1143,7 +1143,7 @@ PYBIND11_MODULE(spectrogram, m)
 {
   m.def("render_to_file", Py_render_to_file, "Render a spectrogram image from the given audio buffer", py::arg("buf"),
         py::arg("filename"), py::arg("width") = 640, py::arg("height") = 480, py::arg("border") = true,
-        py::arg("log_freq") = false, py::arg("greyscale") = false, py::arg("min_freq") = 0.0f,
+        py::arg("log_freq") = false, py::arg("grayscale") = false, py::arg("min_freq") = 0.0f,
         py::arg("max_freq") = 0.0f, py::arg("fft_freq") = 0.0f, py::arg("dyn_range") = 180.0f,
         py::arg("window_func") = "kaiser");
 }

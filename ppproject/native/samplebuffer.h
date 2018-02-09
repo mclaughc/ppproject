@@ -73,6 +73,14 @@ public:
   void SetEndOfStream(bool value = true) { m_end_of_stream = value; }
   void ClearEndOfStream() { m_end_of_stream = false; }
 
+  // Removes all frames from the buffer.
+  void Clear()
+  {
+    m_read_position = 0;
+    m_write_position = 0;
+    Shrink();
+  }
+
   // Looks ahead into the stream past the current read position, or "peeks".
   template<typename ReturnType>
   std::vector<ReturnType> Peek(int offset) const
