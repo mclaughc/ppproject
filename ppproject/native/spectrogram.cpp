@@ -19,6 +19,7 @@
 
 #include "samplebuffer.h"
 #include "shared/string_helpers.h"
+#include "shared/types.h"
 #include <Python.h>
 #include <algorithm>
 #include <array>
@@ -30,6 +31,7 @@
 #include <cstring>
 #include <exception>
 #include <fftw3.h>
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <string>
 #include <vector>
@@ -244,15 +246,21 @@ double calc_magnitude_spectrum(spectrum* spec)
 
 static const char font_family[] = "Terminus";
 
-typedef struct
+struct RENDER
 {
-  const char* pngfilepath;
+  cairo_surface_t* surface = nullptr;
   int width, height;
   bool border, log_freq, gray_scale;
   double min_freq, max_freq, fft_freq;
   WINDOW_FUNCTION window_function;
   double spec_floor_db;
-} RENDER;
+
+  ~RENDER()
+  {
+    if (surface)
+      cairo_surface_destroy(surface);
+  }
+};
 
 typedef struct
 {
@@ -925,7 +933,7 @@ static bool is_good_speclen(int n)
   return is_2357(n) || ((n % 11 == 0) && is_2357(n / 11)) || ((n % 13 == 0) && is_2357(n / 13));
 }
 
-static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf, cairo_surface_t* surface)
+static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
 {
   const int samplerate = inbuf->GetSampleRate();
   const int filelen = inbuf->GetSize();
@@ -936,8 +944,8 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf, c
 
   if (render->border)
   {
-    width = lrint(cairo_image_surface_get_width(surface) - LEFT_BORDER - RIGHT_BORDER);
-    height = lrint(cairo_image_surface_get_height(surface) - TOP_BORDER - BOTTOM_BORDER);
+    width = lrint(cairo_image_surface_get_width(render->surface) - LEFT_BORDER - RIGHT_BORDER);
+    height = lrint(cairo_image_surface_get_height(render->surface) - TOP_BORDER - BOTTOM_BORDER);
   }
   else
   {
@@ -947,14 +955,14 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf, c
 
   if (width < 1)
   {
-    printf("Error : 'width' parameter must be >= %d\n", render->border ? (int)(LEFT_BORDER + RIGHT_BORDER) + 1 : 1);
-    exit(1);
+    throw std::invalid_argument(StringFromFormat("Error : 'width' parameter must be >= %d\n",
+                                                 render->border ? (int)(LEFT_BORDER + RIGHT_BORDER) + 1 : 1));
   }
 
   if (height < 1)
   {
-    printf("Error : 'height' parameter must be >= %d\n", render->border ? (int)(TOP_BORDER + BOTTOM_BORDER) + 1 : 1);
-    exit(1);
+    throw std::invalid_argument(StringFromFormat("Error : 'height' parameter must be >= %d",
+                                                 render->border ? (int)(TOP_BORDER + BOTTOM_BORDER) + 1 : 1));
   }
 
   /*
@@ -1039,61 +1047,29 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf, c
     heat_rect.width = 12;
     heat_rect.height = height - TOP_BORDER / 2;
 
-    render_spectrogram(surface, render->spec_floor_db, mag_spec, max_mag, LEFT_BORDER, TOP_BORDER, width, height,
-                       render->gray_scale);
+    render_spectrogram(render->surface, render->spec_floor_db, mag_spec, max_mag, LEFT_BORDER, TOP_BORDER, width,
+                       height, render->gray_scale);
 
-    render_heat_map(surface, render->spec_floor_db, &heat_rect, render->gray_scale);
+    render_heat_map(render->surface, render->spec_floor_db, &heat_rect, render->gray_scale);
 
-    render_spect_border(surface, LEFT_BORDER, width, filelen / (1.0 * samplerate), TOP_BORDER, height, render->min_freq,
-                        render->max_freq, render->log_freq);
-    render_heat_border(surface, render->spec_floor_db, &heat_rect);
+    render_spect_border(render->surface, LEFT_BORDER, width, filelen / (1.0 * samplerate), TOP_BORDER, height,
+                        render->min_freq, render->max_freq, render->log_freq);
+    render_heat_border(render->surface, render->spec_floor_db, &heat_rect);
   }
   else
-    render_spectrogram(surface, render->spec_floor_db, mag_spec, max_mag, 0, 0, width, height, render->gray_scale);
+  {
+    render_spectrogram(render->surface, render->spec_floor_db, mag_spec, max_mag, 0, 0, width, height,
+                       render->gray_scale);
+  }
 
   for (int w = 0; w < width; w++)
     delete[] mag_spec[w];
   delete[] mag_spec;
-} /* render_to_surface */
-
-static void render_cairo_surface(const RENDER* render, const SampleBuffer* inbuf)
-{
-  cairo_surface_t* surface = NULL;
-  cairo_status_t status;
-
-  /*
-  **	CAIRO_FORMAT_RGB24 	 each pixel is a 32-bit quantity, with the
-  *upper 8 bits
-  **	unused. Red, Green, and Blue are stored in the remaining 24 bits in
-  *that order.
-  */
-
-  surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, render->width, render->height);
-  if (surface == NULL || cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS)
-  {
-    status = cairo_surface_status(surface);
-    printf("Error while creating surface : %s\n", cairo_status_to_string(status));
-    exit(1);
-  }
-
-  cairo_surface_flush(surface);
-
-  render_to_surface(render, inbuf, surface);
-
-  status = cairo_surface_write_to_png(surface, render->pngfilepath);
-  if (status != CAIRO_STATUS_SUCCESS)
-  {
-    printf("Error while creating PNG file : %s\n", cairo_status_to_string(status));
-    exit(1);
-  }
-
-  cairo_surface_destroy(surface);
 }
 
-static void Py_render_to_file(SampleBuffer* buf, const std::string& filename, int width = 640, int height = 480,
-                              bool border = true, bool log_freq = false, bool grayscale = false, float min_freq = 0.0f,
-                              float max_freq = 0.0f, float fft_freq = 0.0f, float dyn_range = 180.0f,
-                              const std::string& window_func = "kaiser")
+static RENDER setup_render(SampleBuffer* buf, int width, int height, bool border, bool log_freq, bool grayscale,
+                           float min_freq, float max_freq, float fft_freq, float dyn_range,
+                           const std::string& window_func)
 {
   if (width < 1 || height < 1)
     throw std::invalid_argument("width/height must be positive");
@@ -1102,8 +1078,7 @@ static void Py_render_to_file(SampleBuffer* buf, const std::string& filename, in
   if (fft_freq < 0.0f)
     throw std::invalid_argument("fft_freq cannot be negative");
 
-  RENDER render;
-  render.pngfilepath = filename.c_str();
+  RENDER render = {};
   render.width = width;
   render.height = height;
   render.border = border;
@@ -1132,13 +1107,70 @@ static void Py_render_to_file(SampleBuffer* buf, const std::string& filename, in
 
   /* Do this sanity check here, as soon as max_freq has its default value */
   if (render.min_freq >= render.max_freq)
-    throw new std::invalid_argument(
+  {
+    throw std::invalid_argument(
       StringFromFormat("min_freq (%g) must be less than max_freq (%g)", render.min_freq, render.max_freq));
+  }
 
-  render_cairo_surface(&render, buf);
+  render.surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
+  if (!render.surface || cairo_surface_status(render.surface) != CAIRO_STATUS_SUCCESS)
+  {
+    throw std::runtime_error(StringFromFormat("Error while creating surface : %s",
+                                              cairo_status_to_string(cairo_surface_status(render.surface))));
+  }
+
+  cairo_surface_flush(render.surface);
+  return render;
 }
 
 namespace py = pybind11;
+
+static void Py_render_to_file(SampleBuffer* buf, const std::string& filename, int width = 640, int height = 480,
+                              bool border = true, bool log_freq = false, bool grayscale = false, float min_freq = 0.0f,
+                              float max_freq = 0.0f, float fft_freq = 0.0f, float dyn_range = 180.0f,
+                              const std::string& window_func = "kaiser")
+{
+  RENDER render =
+    setup_render(buf, width, height, border, log_freq, grayscale, min_freq, max_freq, fft_freq, dyn_range, window_func);
+  render_to_surface(&render, buf);
+
+  cairo_status_t status = cairo_surface_write_to_png(render.surface, filename.c_str());
+  if (status != CAIRO_STATUS_SUCCESS)
+  {
+    throw std::runtime_error(StringFromFormat("Error while creating PNG file : %s", cairo_status_to_string(status)));
+  }
+}
+
+static py::array_t<float> Py_render_to_array(SampleBuffer* buf, int width = 640, int height = 480,
+                                             bool log_freq = false, bool grayscale = false, float min_freq = 0.0f,
+                                             float max_freq = 0.0f, float fft_freq = 0.0f, float dyn_range = 180.0f,
+                                             const std::string& window_func = "kaiser")
+{
+  RENDER render =
+    setup_render(buf, width, height, false, log_freq, grayscale, min_freq, max_freq, fft_freq, dyn_range, window_func);
+  render_to_surface(&render, buf);
+
+  const int stride = cairo_image_surface_get_stride(render.surface);
+  const u8* data = cairo_image_surface_get_data(render.surface);
+
+  // Allocate the output array. If we did a round-trip to png and back, imread() would give us a WxHx3 float array.
+  py::array_t<float> out_array({height, width, 3});
+  auto r = out_array.mutable_unchecked<3>();
+  for (int y = 0; y < r.shape(0); y++)
+  {
+    for (int x = 0; x < r.shape(1); x++)
+    {
+      u32 rgba;
+      std::memcpy(&rgba, data + stride * y + x * sizeof(rgba), sizeof(rgba));
+      r(y, x, 0) = float((rgba >> 16) & 0xFF) * (1.0f / 255.0f);
+      r(y, x, 1) = float((rgba >> 8) & 0xFF) * (1.0f / 255.0f);
+      r(y, x, 2) = float(rgba & 0xFF) * (1.0f / 255.0f);
+    }
+  }
+
+  return out_array;
+}
+
 PYBIND11_MODULE(spectrogram, m)
 {
   m.def("render_to_file", Py_render_to_file, "Render a spectrogram image from the given audio buffer", py::arg("buf"),
@@ -1146,4 +1178,9 @@ PYBIND11_MODULE(spectrogram, m)
         py::arg("log_freq") = false, py::arg("grayscale") = false, py::arg("min_freq") = 0.0f,
         py::arg("max_freq") = 0.0f, py::arg("fft_freq") = 0.0f, py::arg("dyn_range") = 180.0f,
         py::arg("window_func") = "kaiser");
+  m.def("render_to_array", Py_render_to_array,
+        "Render a spectrogram image to a numpy array, from the given audio buffer", py::arg("buf"),
+        py::arg("width") = 640, py::arg("height") = 480, py::arg("log_freq") = false, py::arg("grayscale") = false,
+        py::arg("min_freq") = 0.0f, py::arg("max_freq") = 0.0f, py::arg("fft_freq") = 0.0f,
+        py::arg("dyn_range") = 180.0f, py::arg("window_func") = "kaiser");
 }
