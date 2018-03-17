@@ -59,7 +59,8 @@ public:
     size_t new_size = m_write_position - m_read_position;
     if (new_size > 0)
     {
-      std::memmove(m_samples.data(), m_samples.data() + m_read_position * m_channels, new_size * m_channels);
+      std::memmove(m_samples.data(), m_samples.data() + m_read_position * m_channels,
+                   new_size * m_channels * sizeof(Sample));
     }
 
     m_write_position -= m_read_position;
