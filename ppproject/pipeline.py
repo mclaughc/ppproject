@@ -12,6 +12,7 @@ class Pipeline:
 
     logger.debug("added stage '%s'", stage.get_name())
     self.stages.append(stage)
+    stage.set_pipeline(self)
 
   def _run_iteration(self):
     # Start with a done flag of true, we'll clear it if anything isn't done.
@@ -27,10 +28,12 @@ class Pipeline:
     return is_done
 
   def run(self, num_iterations = 1):
+    """Executes one or more iterations of the pipeline. If all stages are done, returns true."""
     for i in range(0, num_iterations):
       # break out if we're finished early
       if (self._run_iteration()):
-        break
+        return True
+    return False
 
   def run_until_complete(self):
     done = False
@@ -39,6 +42,8 @@ class Pipeline:
 
 
 class PipelineStage:
+  pipeline = None
+
   def __init__(self, name = ""):
     """Creates a new pipeline stage, with the specified name. If the name is empty,
     a name based on the string representation of the object will be generated."""
@@ -67,3 +72,13 @@ class PipelineStage:
   def run(self):
     """Execute this pipeline stage, processing any pending input."""
     pass
+
+  def get_pipeline(self):
+    """Returns the pipeline this stage is a part of."""
+    return self.pipeline
+
+  def set_pipeline(self, pipeline):
+    """Sets the pipeline this stage is a part of. Should only be called once."""
+    assert(self.pipeline is None and pipeline is not None)
+    self.pipeline = pipeline
+
