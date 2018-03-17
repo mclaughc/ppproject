@@ -28,6 +28,25 @@ class AudioChannel:
     """Returns the buffer containing the samples streamed through this channel."""
     return self.buffer
 
+  def get_buffer_size(self):
+    """Returns the number of frames in the audio buffer."""
+    return self.buffer.get_size()
+
+  def is_buffer_empty(self):
+    """Returns true if the sample buffer is empty."""
+    return self.buffer.is_empty()
+
+  def create_matching_buffer(self):
+    """Returns a new, empty sample buffer, with the same format as this channel, suitable for swapping."""
+    return SampleBuffer(self.sample_rate, self.channels)
+
+  def detach_buffer(self):
+    """Resets the sample buffer for this channel to an empty buffer, and returns the old sample buffer.
+    The caller now owns the returned sample buffer."""
+    buffer = self.create_matching_buffer()
+    buffer.swap(self.buffer)
+    return buffer
+
   def get_metadata(self):
     """Returns the metadata container for audio streamed through this channel."""
     return self.metadata
