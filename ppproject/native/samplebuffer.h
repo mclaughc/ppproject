@@ -215,13 +215,35 @@ public:
     return &m_samples[size_t(offset) * m_channels];
   }
 
+  // Inserts n seconds of silence.
+  void InsertSilence(float duration) { InsertSilenceFrames(int(duration * m_sample_rate)); }
+
+  // Inserts n frames of silence.
+  void InsertSilenceFrames(int num_frames)
+  {
+    if (num_frames <= 0)
+      return;
+
+    size_t new_size = m_write_position + (size_t(num_frames) * m_channels);
+    if (new_size > m_samples.size())
+      m_samples.resize(new_size);
+
+    size_t out_pos = m_write_position * m_channels;
+    for (int i = 0; i < num_frames; i++)
+    {
+      for (int i = 0; i < m_channels; i++)
+        m_samples[out_pos++] = Sample(0);
+      m_write_position++;
+    }
+  }
+
   // Python-wrapped versions of pop/peek/push.
   template<typename ValueType>
   void PyPush(const pybind11::tuple& samples)
   {
     if (samples.size() != m_channels)
       throw std::invalid_argument("samples contains an incorrect number of channels");
-    
+
     if ((m_write_position * m_channels) == m_samples.size())
       m_samples.resize(m_samples.size() + m_channels);
     size_t out_pos = m_write_position * m_channels;

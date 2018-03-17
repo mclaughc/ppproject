@@ -14,9 +14,10 @@ class Splitter(AudioFilter):
   chunk_frames = 0
   chunk_frames_remaining = 0
   next_segment_number = 1
+  pad_short_segments = True
   ready = False
 
-  def __init__(self, split_length = 10.0, overlap_duration = 0.0, name = ""):
+  def __init__(self, split_length = 10.0, overlap_duration = 0.0, pad_short_segments = True, name = ""):
     super().__init__(name)
     if (split_length <= 0.0):
       raise ValueError("split_length must be positive")
@@ -26,6 +27,7 @@ class Splitter(AudioFilter):
       raise ValueError("overlap duration cannot be greater than the split length")
     self.split_length = split_length
     self.overlap_duration = overlap_duration
+    self.pad_short_segments = pad_short_segments
 
   def set_split_length(self, split_length):
     if (split_length <= 0.0):
@@ -42,6 +44,9 @@ class Splitter(AudioFilter):
     if (overlap_duration >= self.split_length):
       raise ValueError("overlap duration cannot be greater than the split length")
     self.overlap_duration = overlap_duration
+
+  def set_pad_short_segments(self, enabled):
+    self.pad_short_segments = enabled
 
   def set_input_channel(self, name, channel):
     super().set_input_channel(name, channel)
@@ -107,6 +112,10 @@ class Splitter(AudioFilter):
 
     # Do we have a complete chunk?
     if (self.chunk_frames_remaining == 0 or end_of_input):
+      if (self.pad_short_segments and self.chunk_frames_remaining > 0 and frames_copied > 0):
+        logger.debug("inserting %d frames of silence", self.chunk_frames_remaining)
+        output_buf.insert_silence_frames(self.chunk_frames_remaining)
+
       # Set the end-of-stream flag. We'll remove this next time around.
       logger.debug("pushing chunk")
       self.output_channel.set_end_of_stream()
