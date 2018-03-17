@@ -7,6 +7,7 @@
 #include <cstring>
 #include <exception>
 #include <pybind11/pybind11.h>
+#include <utility>
 #include <vector>
 
 // SampleBuffer represents the storage of one or more samples, across one or
@@ -67,6 +68,7 @@ public:
 
   // Returns the number of frames remaining before the end of the buffer.
   int GetSize() const { return m_write_position - m_read_position; }
+  bool IsEmpty() const { return m_write_position == m_read_position; }
 
   // Clears or sets the "end of stream" flag.
   bool IsEndOfStream() const { return m_end_of_stream; }
@@ -79,6 +81,17 @@ public:
     m_read_position = 0;
     m_write_position = 0;
     Shrink();
+  }
+
+  // Swaps with the other sample buffer.
+  void Swap(SampleBuffer& rhs)
+  {
+    std::swap(m_samples, rhs.m_samples);
+    std::swap(m_read_position, rhs.m_read_position);
+    std::swap(m_write_position, rhs.m_write_position);
+    std::swap(m_sample_rate, rhs.m_sample_rate);
+    std::swap(m_channels, rhs.m_channels);
+    std::swap(m_end_of_stream, rhs.m_end_of_stream);
   }
 
   // Looks ahead into the stream past the current read position, or "peeks".
