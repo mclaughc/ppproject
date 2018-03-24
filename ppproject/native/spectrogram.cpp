@@ -24,9 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <climits>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <fftw3.h>
@@ -34,7 +32,6 @@
 #include <mutex>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
-#include <string>
 #include <vector>
 
 #ifdef _OPENMP
@@ -230,10 +227,10 @@ struct Spectrogram
   template<typename SetPixelFunction>
   void Render(SetPixelFunction set_pixel);
 
-public:
+private:
   // Map values from the spectrogram onto an array of magnitudes, the values for display. Reads spec[0..speclen], writes
   // mag[0..maglen-1].
-  void MapToMagnitudeArray(float* mag, const double* spec, int speclen) const;
+  void MapToMagnitudeArray(int x, const double* spec, int speclen) const;
 
   // Map the index for an output pixel in a column to an index into the FFT result representing the same frequency.
   // magindex is from 0 to maglen-1, representing min_freq to max_freq Hz.
@@ -325,40 +322,61 @@ static bool is_good_speclen(int n)
 // Currently, the spectrogram generation is not reentrant.
 // This is due to caching the fftw plans.
 static std::mutex s_render_mutex;
-static float** s_mag_spec = nullptr;
+
+// Resizes the output magnitude array. This is static, to avoid the allocation overhead.
+static std::vector<float> s_mag_spec;
 static int s_last_width = 0;
 static int s_last_height = 0;
+static void ResizeMagnitudeArray(int width, int height)
+{
+  if (s_last_width == width && s_last_height == height)
+    return;
+
+  s_mag_spec.resize(width * height);
+  s_last_width = width;
+  s_last_height = height;
+}
+
+static float ReadMagnitudeArray(int x, int y)
+{
+  return s_mag_spec[y * s_last_width + x];
+}
+
+static void WriteMagnitudeArray(int x, int y, float value)
+{
+  s_mag_spec[y * s_last_width + x] = value;
+}
 
 void Spectrogram::Calculate(const SampleBuffer* buf)
 {
   const int samplerate = buf->GetSampleRate();
   const int filelen = buf->GetSize();
 
-  /*
-  ** Choose a speclen value, the spectrum length.
-  ** The FFT window size is twice this.
-  */
+  // Choose a speclen value, the spectrum length.
+  // The FFT window size is twice this.
   int speclen;
   if (fft_freq != 0.0)
-    /* Choose an FFT window size of 1/fft_freq seconds of audio */
+  {
+    // Choose an FFT window size of 1/fft_freq seconds of audio.
     speclen = (samplerate / fft_freq + 1) / 2;
+  }
   else
-    /* Long enough to represent frequencies down to 20Hz. */
+  {
+    // Long enough to represent frequencies down to 20Hz.
     speclen = height * (samplerate / 20 / height + 1);
+  }
 
-  /* Find the nearest fast value for the FFT size. */
+  // Find the nearest fast value for the FFT size.
   for (int d = 0; /* Will terminate */; d++)
-  { /* Logarithmically, the integer above is closer than
-     ** the integer below, so prefer it to the one below.
-     */
+  {
+    // Logarithmically, the integer above is closer than the integer below, so prefer it to the one below.
     if (is_good_speclen(speclen + d))
     {
       speclen += d;
       break;
     }
-    /* FFT length must also be >= the output height,
-    ** otherwise repeated pixel rows occur in the output.
-    */
+
+    // FFT length must also be >= the output height, otherwise repeated pixel rows occur in the output.
     if (speclen - d >= height && is_good_speclen(speclen - d))
     {
       speclen -= d;
@@ -366,21 +384,7 @@ void Spectrogram::Calculate(const SampleBuffer* buf)
     }
   }
 
-  if (!s_mag_spec || s_last_width != width || s_last_height != height)
-  {
-    if (s_mag_spec)
-    {
-      for (int w = 0; w < s_last_width; w++)
-        delete[] s_mag_spec[w];
-      delete[] s_mag_spec;
-    }
-
-    s_last_width = width;
-    s_last_height = height;
-    s_mag_spec = new float*[s_last_width];
-    for (int w = 0; w < s_last_width; w++)
-      s_mag_spec[w] = new float[s_last_height];
-  }
+  ResizeMagnitudeArray(width, height);
 
 #ifndef _OPENMP
   static std::unique_ptr<FrequencyDomain> spec;
@@ -411,7 +415,7 @@ void Spectrogram::Calculate(const SampleBuffer* buf)
     spec->Calculate();
     max_mag = std::max(max_mag, spec->GetMaxMagnitude());
 
-    MapToMagnitudeArray(s_mag_spec[current_x], spec->GetOutputMagnitudes(), speclen);
+    MapToMagnitudeArray(current_x, spec->GetOutputMagnitudes(), speclen);
   }
 
 #else
@@ -452,13 +456,13 @@ void Spectrogram::Calculate(const SampleBuffer* buf)
     spec->Calculate();
     max_mag = std::max(max_mag, spec->GetMaxMagnitude());
 
-    MapToMagnitudeArray(s_mag_spec[current_x], spec->GetOutputMagnitudes(), speclen);
+    MapToMagnitudeArray(current_x, spec->GetOutputMagnitudes(), speclen);
   }
 
 #endif
 }
 
-void Spectrogram::MapToMagnitudeArray(float* mag, const double* spec, int speclen) const
+void Spectrogram::MapToMagnitudeArray(int x, const double* spec, int speclen) const
 {
   // Map each output coordinate to where it depends on in the input array.
   // If there are more input values than output values, we need to average a range of inputs.
@@ -479,10 +483,11 @@ void Spectrogram::MapToMagnitudeArray(float* mag, const double* spec, int specle
     // Range check: can happen if --max-freq > samplerate / 2
     if (this_val > speclen)
     {
-      mag[k] = 0.0;
-      return;
+      WriteMagnitudeArray(x, k, 0.0f);
+      continue;
     }
 
+    double val;
     if (next > this_val + 1)
     {
       // The output indices are more sparse than the input indices, so average the range of input indices that map to
@@ -503,15 +508,17 @@ void Spectrogram::MapToMagnitudeArray(float* mag, const double* spec, int specle
         count += next - floor(next);
       }
 
-      mag[k] = sum / count;
+      val = sum / count;
     }
     else
     {
       // The output indices are more densely packed than the input indices so interpolate between input values to
       // generate more output values. Take a weighted average of the nearest values.
-      mag[k] = spec[(int)this_val] * (1.0 - (this_val - floor(this_val))) +
-               spec[(int)this_val + 1] * (this_val - floor(this_val));
+      val = spec[(int)this_val] * (1.0 - (this_val - std::floor(this_val))) +
+            spec[(int)this_val + 1] * (this_val - std::floor(this_val));
     }
+
+    WriteMagnitudeArray(x, k, float(val));
   }
 }
 
@@ -554,24 +561,23 @@ void Spectrogram::GetColorMapValue(float value, u8 color[3]) const
   };
 
   if (gray_scale)
-  {           /* "value" is a negative value in decibels.
-               * black (0,0,0) is for <= -180.0, and the other 255 values
-               * should cover the range from -180 to 0 evenly.
-               * (value/spec_floor_db) is >=0.0  and <1.0
-               * because both value and spec_floor_db are negative.
-               * (v/s) * 255.0 goes from 0.0 to 254.9999999 and
-               * floor((v/s) * 255) gives us 0 to 254
-               * converted to 255 to 1 by subtracting it from 255. */
-    int gray; /* The pixel value */
-
+  {
+    // "value" is a negative value in decibels.
+    // black (0,0,0) is for <= -180.0, and the other 255 values should cover the range from -180 to 0 evenly.
+    // (value/spec_floor_db) is >=0.0  and <1.0 because both value and spec_floor_db are negative.
+    // (v/s) * 255.0 goes from 0.0 to 254.9999999 and floor((v/s) * 255) gives us 0 to 254,
+    // converted to 255 to 1 by subtracting it from 255.
+    int gray;
     if (value <= spec_floor_db)
+    {
       gray = 0;
+    }
     else
     {
       gray = 255 - std::lrint(std::floor((value / spec_floor_db) * 255.0));
       assert(gray >= 1 && gray <= 255);
     }
-    color[0] = color[1] = color[2] = gray;
+    color[0] = color[1] = color[2] = u8(gray);
     return;
   }
 
@@ -594,25 +600,23 @@ void Spectrogram::GetColorMapValue(float value, u8 color[3]) const
   }
 
   float rem = std::fmod(value, 1.0);
-
-  color[0] = lrintf((1.0 - rem) * map[indx][0] + rem * map[indx + 1][0]);
-  color[1] = lrintf((1.0 - rem) * map[indx][1] + rem * map[indx + 1][1]);
-  color[2] = lrintf((1.0 - rem) * map[indx][2] + rem * map[indx + 1][2]);
+  color[0] = std::lrintf((1.0 - rem) * map[indx][0] + rem * map[indx + 1][0]);
+  color[1] = std::lrintf((1.0 - rem) * map[indx][1] + rem * map[indx + 1][1]);
+  color[2] = std::lrintf((1.0 - rem) * map[indx][2] + rem * map[indx + 1][2]);
 }
 
 template<typename SetPixelFunction>
 void Spectrogram::Render(SetPixelFunction set_pixel)
 {
-  double linear_spec_floor = pow(10.0, spec_floor_db / 20.0);
+  const double linear_spec_floor = std::pow(10.0, spec_floor_db / 20.0);
 
   for (int x = 0; x < width; x++)
   {
     for (int y = 0; y < height; y++)
     {
-      double mag = s_mag_spec[x][y];
-
-      mag = mag / max_mag;
-      mag = (mag < linear_spec_floor) ? spec_floor_db : 20.0 * std::log10(mag);
+      double mag = ReadMagnitudeArray(x, y);
+      double normalized_mag = mag / max_mag;
+      mag = (normalized_mag < linear_spec_floor) ? spec_floor_db : 20.0 * std::log10(normalized_mag);
 
       u8 colour[3];
       GetColorMapValue(mag, colour);
