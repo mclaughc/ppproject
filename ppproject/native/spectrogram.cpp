@@ -31,10 +31,16 @@
 #include <cstring>
 #include <exception>
 #include <fftw3.h>
+#include <memory>
+#include <mutex>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <string>
 #include <vector>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 enum WINDOW_FUNCTION
 {
@@ -61,10 +67,7 @@ void calc_kaiser_window(double* data, int datalen, double beta)
 
   double denom = besseli0(beta);
   if (!std::isfinite(denom))
-  {
-    printf("besseli0 (%f) : %f\nExiting\n", beta, denom);
-    exit(1);
-  }
+    throw std::runtime_error(StringFromFormat("besseli0 (%f) : %f", beta, denom));
 
   for (int k = 0; k < datalen; k++)
   {
@@ -302,10 +305,7 @@ static void get_colour_map_value(float value, double spec_floor_db, unsigned cha
   indx = lrintf(floor(value));
 
   if (indx < 0)
-  {
-    printf("\nError : colour map array index is %d\n\n", indx);
-    exit(1);
-  }
+    throw std::runtime_error(StringFromFormat("colour map array index is %d", indx));
 
   if (indx >= (sizeof(map) / sizeof(map[0])))
   {
@@ -488,14 +488,17 @@ static bool is_good_speclen(int n)
   return is_2357(n) || ((n % 11 == 0) && is_2357(n / 11)) || ((n % 13 == 0) && is_2357(n / 13));
 }
 
+// Currently, the spectrogram generation is not reentrant.
+// This is due to caching the fftw plans.
+static std::mutex s_render_mutex;
+
 static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
 {
-  const int samplerate = inbuf->GetSampleRate();
-  const int filelen = inbuf->GetSize();
-  float** mag_spec = NULL; // Indexed by [w][h]
-
   if (render->width < 1 || render->height < 1)
     throw std::invalid_argument("width and height must be >= 1");
+
+  const int samplerate = inbuf->GetSampleRate();
+  const int filelen = inbuf->GetSize();
 
   /*
   ** Choose a speclen value, the spectrum length.
@@ -529,17 +532,30 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
     }
   }
 
-  mag_spec = new float*[render->width];
-  for (int w = 0; w < render->width; w++)
-    mag_spec[w] = new float[render->height];
+  std::lock_guard<std::mutex> guard(s_render_mutex);
 
-  FrequencyDomain spec(speclen, render->window_function);
+  static float** mag_spec = nullptr;
+  static int last_width = 0;
+  static int last_height = 0;
+  if (!mag_spec || last_width != render->width || last_height != render->height)
+  {
+    last_width = render->width;
+    last_height = render->height;
+    mag_spec = new float*[last_width];
+    for (int w = 0; w < last_width; w++)
+      mag_spec[w] = new float[last_height];
+  }
+
+#ifndef _OPENMP
+  static std::unique_ptr<FrequencyDomain> spec;
+  if (!spec || spec->GetLength() != speclen || spec->GetWindowFunction() != render->window_function)
+    spec = std::make_unique<FrequencyDomain>(speclen, render->window_function);
 
   double max_mag = 0.0;
   for (int current_x = 0; current_x < render->width; current_x++)
   {
-    double* data = spec.GetInputData();
-    int datalen = spec.GetInputCount();
+    double* data = spec->GetInputData();
+    int datalen = spec->GetInputCount();
     std::memset(data, 0, datalen * sizeof(data[0]));
 
     // Watch out integer overflow here, as indx * filelen can produce a number greater than 2^31.
@@ -556,18 +572,57 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
     for (int i = 0; i < datalen; i++)
       data[i] = SampleConversion::ConvertTo<double>(*inbuf->GetPeekPointer(start + i));
 
-    spec.Calculate();
-    max_mag = std::max(max_mag, spec.GetMaxMagnitude());
+    spec->Calculate();
+    max_mag = std::max(max_mag, spec->GetMaxMagnitude());
 
-    interp_spec(mag_spec[current_x], render->height, spec.GetOutputMagnitudes(), speclen, render, samplerate);
+    interp_spec(mag_spec[current_x], render->height, spec->GetOutputMagnitudes(), speclen, render, samplerate);
   }
+
+#else
+  // Array of frequency domain converters - we make this persistent, this way we don't need to
+  // recreate them every time we generate a spectrogram.
+  static std::vector<std::unique_ptr<FrequencyDomain>> specs(omp_get_max_threads());
+  for (int i = 0; i < omp_get_max_threads(); i++)
+  {
+    auto& spec = specs.at(i);
+    if (!spec || spec->GetLength() != speclen || spec->GetWindowFunction() != render->window_function)
+      spec = std::make_unique<FrequencyDomain>(speclen, render->window_function);
+  }
+
+  double max_mag = 0.0;
+
+#pragma omp parallel for schedule(static) reduction(max : max_mag)
+  for (int current_x = 0; current_x < render->width; current_x++)
+  {
+    FrequencyDomain* spec = specs.at(omp_get_thread_num()).get();
+    double* data = spec->GetInputData();
+    int datalen = spec->GetInputCount();
+    std::memset(data, 0, datalen * sizeof(data[0]));
+
+    // Watch out integer overflow here, as indx * filelen can produce a number greater than 2^31.
+    int start = int((u64(current_x) * u64(filelen)) / render->width) - datalen / 2;
+    if (start < 0)
+    {
+      // Fill negative indices with zeros
+      data += -start;
+      datalen -= -start;
+      start = 0;
+    }
+    if ((start + datalen) > filelen)
+      datalen -= (start + datalen) - filelen;
+    for (int i = 0; i < datalen; i++)
+      data[i] = SampleConversion::ConvertTo<double>(*inbuf->GetPeekPointer(start + i));
+
+    spec->Calculate();
+    max_mag = std::max(max_mag, spec->GetMaxMagnitude());
+
+    interp_spec(mag_spec[current_x], render->height, spec->GetOutputMagnitudes(), speclen, render, samplerate);
+  }
+
+#endif
 
   render_spectrogram(render->surface, render->spec_floor_db, mag_spec, max_mag, 0, 0, render->width, render->height,
                      render->gray_scale);
-
-  for (int w = 0; w < render->width; w++)
-    delete[] mag_spec[w];
-  delete[] mag_spec;
 }
 
 static RENDER setup_render(SampleBuffer* buf, int width, int height, bool log_freq, bool grayscale, float min_freq,

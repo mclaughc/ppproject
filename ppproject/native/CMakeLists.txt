@@ -11,11 +11,9 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   if(COMPILER_SUPPORTS_CXX14)
     message("Enabling C++14 support.")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
-    set(TARGET_CXX_FLAGS "${TARGET_CXX_FLAGS} -std=c++14")
   elseif(COMPILER_SUPPORTS_CXX14)
     message(WARNING "No C++14 support, enabling C++11 support.")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-    set(TARGET_CXX_FLAGS "${TARGET_CXX_FLAGS} -std=c++11")
   else()
     message(WARNING "No C++11 support. This may cause issues.")
   endif()
@@ -30,6 +28,16 @@ include_directories(${CMAKE_SOURCE_DIR})
 
 # Enable PIC globally so that we can link static libs against our python modules.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Find and enable OpenMP
+find_package(OpenMP)
+if (OPENMP_FOUND)
+  message(STATUS "OpenMP found, enabling.")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+else()
+  message(WARNING "OpenMP not found, performance may be slower as a result.")
+endif()
 
 # Shared library
 add_subdirectory(shared)
