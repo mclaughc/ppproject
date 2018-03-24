@@ -2,7 +2,7 @@ import sys
 sys.path.append("..")
 
 from ppproject import open_file_reader
-from ppproject import SampleBuffer, render_spectrogram_to_file, render_spectrogram_to_array
+from ppproject import SampleBuffer, spectrogram
 from numpy import array
 from matplotlib import image as mpimg
 

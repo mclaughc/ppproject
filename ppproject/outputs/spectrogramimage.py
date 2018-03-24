@@ -1,14 +1,11 @@
 from ppproject.channels.audiochannel import AudioChannel
-from ppproject.native.spectrogram import render_to_file as render_spectrogram_to_file
 from ppproject.native.samplebuffer import SampleBuffer
 from ppproject.metadata import Metadata
 from ppproject.pipeline import PipelineStage
+from ppproject import spectrogram
 
 import logging
 logger = logging.getLogger("outputs.spectrogramimage")
-
-# TODO: Support outputting raw byte arrays instead of images.
-# Perhaps with a Spectrogram class which can be exported to an image or array?
 
 class SpectrogramImage(PipelineStage):
   input_channel = None
@@ -24,7 +21,7 @@ class SpectrogramImage(PipelineStage):
   max_freq = 0.0
   fft_freq = 0.0
   dyn_range = 180.0
-  window_func = "kaiser"
+  window_func = spectrogram.WindowFunction.KAISER
   ready = False
   done = False
 
@@ -39,7 +36,7 @@ class SpectrogramImage(PipelineStage):
                max_freq = 0.0,
                fft_freq = 0.0,
                dyn_range = 180.0,
-               window_func = "kaiser",
+               window_func = spectrogram.WindowFunction.KAISER,
                name = ""):
     super().__init__(name)
     self.output_filename_template = output_filename_template
@@ -70,11 +67,10 @@ class SpectrogramImage(PipelineStage):
   def render_spectrogram(self):
     filename = self.output_metadata.format_string(self.output_filename_template)
     logger.debug("rendering spectrogram of %d frames to %s", self.output_buffer.get_size(), filename)
-    render_spectrogram_to_file(buf = self.output_buffer, filename = filename,
-                               width = self.image_width, height = self.image_height,
-                               border = self.border, grayscale = self.grayscale,
-                               log_freq = self.log_freq, min_freq = self.min_freq, max_freq = self.max_freq,
-                               fft_freq = self.fft_freq, dyn_range = self.dyn_range, window_func = self.window_func)
+    spectrogram.render_to_file(buf = self.output_buffer, filename = filename, width = self.image_width,
+                               height = self.image_height, grayscale = self.grayscale, log_freq = self.log_freq,
+                               min_freq = self.min_freq, max_freq = self.max_freq, fft_freq = self.fft_freq,
+                               dyn_range = self.dyn_range, window_func = self.window_func)
     
     # spectrogram.render_to_file does not clear the buffer, so clear it here
     # otherwise we end up creating a spectrogram of the entire input

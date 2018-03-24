@@ -41,7 +41,7 @@ for segment in output.get_iterator():
   print("got a segment %d of %d frames" % (segid, buf.get_size()))
 
   # Create spectrogram array.
-  spec_array = ppproject.render_spectrogram_to_array(buf = buf, width = SPECTROGRAM_WIDTH,
+  spec_array = ppproject.spectrogram.render_to_array(buf = buf, width = SPECTROGRAM_WIDTH,
                                                      height = SPECTROGRAM_HEIGHT,
                                                      grayscale = SPECTROGRAM_GRAYSCALE)
 

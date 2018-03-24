@@ -642,22 +642,6 @@ static RENDER setup_render(SampleBuffer* buf, int width, int height, bool log_fr
 
 namespace py = pybind11;
 
-static void Py_render_to_file(SampleBuffer* buf, const std::string& filename, int width = 640, int height = 480,
-                              bool log_freq = false, bool grayscale = false, float min_freq = 0.0f,
-                              float max_freq = 0.0f, float fft_freq = 0.0f, float dyn_range = 180.0f,
-                              const std::string& window_func = "kaiser")
-{
-  RENDER render =
-    setup_render(buf, width, height, log_freq, grayscale, min_freq, max_freq, fft_freq, dyn_range, window_func);
-  render_to_surface(&render, buf);
-
-  cairo_status_t status = cairo_surface_write_to_png(render.surface, filename.c_str());
-  if (status != CAIRO_STATUS_SUCCESS)
-  {
-    throw std::runtime_error(StringFromFormat("Error while creating PNG file : %s", cairo_status_to_string(status)));
-  }
-}
-
 static py::array_t<float> Py_render_to_array(SampleBuffer* buf, int width = 640, int height = 480,
                                              bool log_freq = false, bool grayscale = false, float min_freq = 0.0f,
                                              float max_freq = 0.0f, float fft_freq = 0.0f, float dyn_range = 180.0f,
@@ -690,10 +674,6 @@ static py::array_t<float> Py_render_to_array(SampleBuffer* buf, int width = 640,
 
 PYBIND11_MODULE(spectrogram, m)
 {
-  m.def("render_to_file", Py_render_to_file, "Render a spectrogram image from the given audio buffer", py::arg("buf"),
-        py::arg("filename"), py::arg("width") = 640, py::arg("height") = 480, py::arg("log_freq") = false,
-        py::arg("grayscale") = false, py::arg("min_freq") = 0.0f, py::arg("max_freq") = 0.0f,
-        py::arg("fft_freq") = 0.0f, py::arg("dyn_range") = 180.0f, py::arg("window_func") = "kaiser");
   m.def("render_to_array", Py_render_to_array,
         "Render a spectrogram image to a numpy array, from the given audio buffer", py::arg("buf"),
         py::arg("width") = 640, py::arg("height") = 480, py::arg("log_freq") = false, py::arg("grayscale") = false,
