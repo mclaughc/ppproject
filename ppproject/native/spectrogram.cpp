@@ -48,24 +48,6 @@ static void calc_kaiser_window(double* data, int datalen, double beta);
 static void calc_nuttall_window(double* data, int datalen);
 static void calc_hann_window(double* data, int datalen);
 
-typedef struct
-{
-  int speclen;
-  WINDOW_FUNCTION wfunc;
-  fftw_plan plan;
-
-  double* time_domain;
-  double* window;
-  double* freq_domain;
-  double* mag_spec;
-
-  double data[];
-} spectrum;
-
-static spectrum* create_spectrum(int speclen, WINDOW_FUNCTION window_function);
-static void destroy_spectrum(spectrum* spec);
-static double calc_magnitude_spectrum(spectrum* spec);
-
 static double besseli0(double x);
 static double factorial(int k);
 
@@ -143,93 +125,104 @@ double factorial(int val)
   return memory[val];
 }
 
-spectrum* create_spectrum(int speclen, WINDOW_FUNCTION window_function)
+class FrequencyDomain
 {
-  spectrum* spec = new spectrum;
-  spec->wfunc = window_function;
-  spec->speclen = speclen;
+public:
+  FrequencyDomain(int speclen_, WINDOW_FUNCTION wfunc_);
+  ~FrequencyDomain();
 
+  int GetLength() const { return speclen; }
+  WINDOW_FUNCTION GetWindowFunction() const { return wfunc; }
+
+  int GetInputCount() const { return speclen * 2; }
+  double* GetInputData() const { return time_domain; }
+  double* GetOutputMagnitudes() const { return mag_spec; }
+  double GetMaxMagnitude() const { return max; }
+
+  void Calculate();
+
+private:
+  int speclen;
+  WINDOW_FUNCTION wfunc;
+  fftw_plan plan;
+
+  double* time_domain;
+  double* window;
+  double* freq_domain;
+  double* mag_spec;
+
+  double max;
+};
+
+FrequencyDomain::FrequencyDomain(int speclen_, WINDOW_FUNCTION wfunc_) : speclen(speclen_), wfunc(wfunc_)
+{
   /* mag_spec has values from [0..speclen] inclusive for 0Hz to Nyquist.
   ** time_domain has an extra element to be able to interpolate between
   ** samples for better time precision, hoping to eliminate artifacts.
   */
-  spec->time_domain = new double[2 * speclen + 1];
-  spec->window = new double[2 * speclen];
-  spec->freq_domain = new double[2 * speclen];
-  spec->mag_spec = new double[speclen + 1];
+  time_domain = new double[2 * speclen + 1];
+  window = new double[2 * speclen];
+  freq_domain = new double[2 * speclen];
+  mag_spec = new double[speclen + 1];
 
-  spec->plan =
-    fftw_plan_r2r_1d(2 * speclen, spec->time_domain, spec->freq_domain, FFTW_R2HC, FFTW_MEASURE | FFTW_PRESERVE_INPUT);
-  if (spec->plan == NULL)
-  {
-    printf("%s:%d : fftw create plan failed.\n", __func__, __LINE__);
-    free(spec);
-    exit(1);
-  }
+  plan = fftw_plan_r2r_1d(2 * speclen, time_domain, freq_domain, FFTW_R2HC, FFTW_MEASURE | FFTW_PRESERVE_INPUT);
+  if (!plan)
+    throw std::runtime_error("failed to create fftw plan");
 
-  switch (spec->wfunc)
+  switch (wfunc)
   {
     case RECTANGULAR:
       break;
     case KAISER:
-      calc_kaiser_window(spec->window, 2 * speclen, 20.0);
+      calc_kaiser_window(window, 2 * speclen, 20.0);
       break;
     case NUTTALL:
-      calc_nuttall_window(spec->window, 2 * speclen);
+      calc_nuttall_window(window, 2 * speclen);
       break;
     case HANN:
-      calc_hann_window(spec->window, 2 * speclen);
+      calc_hann_window(window, 2 * speclen);
       break;
     default:
-      printf("Internal error: Unknown window_function.\n");
-      free(spec);
-      exit(1);
+      throw std::invalid_argument("unknown window function");
+  }
+}
+
+FrequencyDomain::~FrequencyDomain()
+{
+  fftw_destroy_plan(plan);
+  delete[] time_domain;
+  delete[] window;
+  delete[] freq_domain;
+  delete[] mag_spec;
+}
+
+void FrequencyDomain::Calculate()
+{
+  int freqlen = 2 * speclen;
+  if (wfunc != RECTANGULAR)
+  {
+    for (int k = 0; k < freqlen; k++)
+      time_domain[k] *= window[k];
   }
 
-  return spec;
-}
-
-void destroy_spectrum(spectrum* spec)
-{
-  fftw_destroy_plan(spec->plan);
-  delete[] spec->time_domain;
-  delete[] spec->window;
-  delete[] spec->freq_domain;
-  delete[] spec->mag_spec;
-  delete spec;
-}
-
-double calc_magnitude_spectrum(spectrum* spec)
-{
-  double max;
-  int k, freqlen;
-
-  freqlen = 2 * spec->speclen;
-
-  if (spec->wfunc != RECTANGULAR)
-    for (k = 0; k < 2 * spec->speclen; k++)
-      spec->time_domain[k] *= spec->window[k];
-
-  fftw_execute(spec->plan);
+  fftw_execute(plan);
 
   /* Convert from FFTW's "half complex" format to an array of magnitudes.
   ** In HC format, the values are stored:
   ** r0, r1, r2 ... r(n/2), i(n+1)/2-1 .. i2, i1
   **/
-  max = spec->mag_spec[0] = fabs(spec->freq_domain[0]);
+  max = mag_spec[0] = fabs(freq_domain[0]);
 
-  for (k = 1; k < spec->speclen; k++)
+  for (int k = 1; k < speclen; k++)
   {
-    double re = spec->freq_domain[k];
-    double im = spec->freq_domain[freqlen - k];
-    spec->mag_spec[k] = sqrt(re * re + im * im);
-    max = std::max(max, spec->mag_spec[k]);
+    double re = freq_domain[k];
+    double im = freq_domain[freqlen - k];
+    mag_spec[k] = sqrt(re * re + im * im);
+    max = std::max(max, mag_spec[k]);
   }
   /* Lastly add the point for the Nyquist frequency */
-  spec->mag_spec[spec->speclen] = fabs(spec->freq_domain[spec->speclen]);
-
-  return max;
-} /* calc_magnitude_spectrum */
+  mag_spec[speclen] = fabs(freq_domain[speclen]);
+}
 
 struct RENDER
 {
@@ -540,18 +533,13 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
   for (int w = 0; w < render->width; w++)
     mag_spec[w] = new float[render->height];
 
-  spectrum* spec = create_spectrum(speclen, render->window_function);
-  if (spec == NULL)
-  {
-    printf("%s : line %d : create plan failed.\n", __FILE__, __LINE__);
-    exit(1);
-  }
+  FrequencyDomain spec(speclen, render->window_function);
 
   double max_mag = 0.0;
   for (int current_x = 0; current_x < render->width; current_x++)
   {
-    double* data = spec->time_domain;
-    int datalen = 2 * speclen;
+    double* data = spec.GetInputData();
+    int datalen = spec.GetInputCount();
     std::memset(data, 0, datalen * sizeof(data[0]));
 
     // Watch out integer overflow here, as indx * filelen can produce a number greater than 2^31.
@@ -568,12 +556,11 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
     for (int i = 0; i < datalen; i++)
       data[i] = SampleConversion::ConvertTo<double>(*inbuf->GetPeekPointer(start + i));
 
-    double single_max = calc_magnitude_spectrum(spec);
-    max_mag = std::max(max_mag, single_max);
-    interp_spec(mag_spec[current_x], render->height, spec->mag_spec, speclen, render, samplerate);
-  }
+    spec.Calculate();
+    max_mag = std::max(max_mag, spec.GetMaxMagnitude());
 
-  destroy_spectrum(spec);
+    interp_spec(mag_spec[current_x], render->height, spec.GetOutputMagnitudes(), speclen, render, samplerate);
+  }
 
   render_spectrogram(render->surface, render->spec_floor_db, mag_spec, max_mag, 0, 0, render->width, render->height,
                      render->gray_scale);
