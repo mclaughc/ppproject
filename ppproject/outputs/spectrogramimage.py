@@ -14,7 +14,6 @@ class SpectrogramImage(PipelineStage):
   next_output_counter = 1
   image_width = 640
   image_height = 480
-  border = False
   grayscale = False
   log_freq = False
   min_freq = 0.0
@@ -29,7 +28,6 @@ class SpectrogramImage(PipelineStage):
                output_filename_template = "spec-%output-counter%.png",
                image_width = 640,
                image_height = 480,
-               border = False,
                grayscale = False,
                log_freq = False,
                min_freq = 0.0,
@@ -42,7 +40,6 @@ class SpectrogramImage(PipelineStage):
     self.output_filename_template = output_filename_template
     self.image_width = image_width
     self.image_height = image_height
-    self.border = border
     self.grayscale = grayscale
     self.log_freq = log_freq
     self.min_freq = min_freq

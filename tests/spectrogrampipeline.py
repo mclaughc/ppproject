@@ -13,9 +13,14 @@ next.set_input_channel("input", current.get_output_channel("output"))
 pipeline.add_stage(next)
 current = next
 
+#next = ppproject.filters.LowPassFilter(cutoff_freq = 1000.0, num_taps = 128)
+#next.set_input_channel("input", current.get_output_channel("output"))
+#pipeline.add_stage(next)
+#current = next
+
 #next = ppproject.outputs.NullOutput(name = "dummy sink")
 #next = ppproject.outputs.FileOutput()
-next = ppproject.outputs.SpectrogramImage(border = True)
+next = ppproject.outputs.SpectrogramImage()
 next.set_input_channel("input", current.get_output_channel("output"))
 pipeline.add_stage(next)
 current = next

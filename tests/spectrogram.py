@@ -1,6 +1,3 @@
-import sys
-sys.path.append("..")
-
 from ppproject import open_file_reader
 from ppproject import SampleBuffer, spectrogram
 from numpy import array

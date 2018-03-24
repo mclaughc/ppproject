@@ -58,3 +58,6 @@ pybind11_add_module(spectrogram MODULE spectrogram.cpp)
 target_include_directories(spectrogram PRIVATE ${FFTW_INCLUDES})
 target_link_libraries(spectrogram PRIVATE shared ${FFTW_LIBRARIES})
 
+# lowpassfilter module
+pybind11_add_module(lowpassfilter MODULE lowpassfilter.cpp)
+target_link_libraries(lowpassfilter PRIVATE shared)
