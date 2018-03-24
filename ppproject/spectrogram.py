@@ -1,5 +1,5 @@
 from enum import Enum
-from matplotlib import image as mpimg
+from matplotlib import pyplot
 from ppproject.native.spectrogram import render_to_array as native_render_to_array
 
 # enumeration of window functions
@@ -24,4 +24,4 @@ def render_to_file(buf, filename, width = 640, height = 480, log_freq = False, g
   spec_array = render_to_array(buf, width = width, height = height, log_freq = log_freq, grayscale = grayscale,
                                min_freq = min_freq, max_freq = max_freq, fft_freq = fft_freq, dyn_range = dyn_range,
                                window_func = window_func)
-  mpimg.imsave(filename, spec_array)
+  pyplot.imsave(filename, spec_array, vmin = 0.0, vmax = 1.0, cmap = pyplot.cm.gray)

@@ -4,7 +4,7 @@ sys.path.append("..")
 from ppproject import open_file_reader
 from ppproject import SampleBuffer, spectrogram
 from numpy import array
-from matplotlib import image as mpimg
+from matplotlib import pyplot
 
 SAMPLERATE = 44100
 CHANNELS = 1
@@ -24,10 +24,10 @@ def make_sine_wave(frequency, buffer, count):
 
 #reader = open_file_reader("tests/wavs/ibis.wav")
 #reader = open_file_reader("tests/wavs/audiocheck.net_sweep_10Hz_100Hz_-3dBFS_3s.wav")
-#reader = open_file_reader("tests/wavs/audiocheck.net_sweep_500Hz_1000Hz_-3dBFS_5s.wav")
+reader = open_file_reader("tests/wavs/audiocheck.net_sweep_500Hz_1000Hz_-3dBFS_5s.wav")
 #reader = open_file_reader("tests/wavs/sweep.wav")
 #reader = open_file_reader("tests/wavs/long.wav")
-reader = open_file_reader("tests/wavs/comb.wav")
+#reader = open_file_reader("tests/wavs/comb.wav")
 
 print("Length in frames", reader.get_total_frames())
 print("Length in time", reader.get_duration())
@@ -39,7 +39,8 @@ print("Buffer size", buf.get_size())
 print("Rendering spectrogram...")
 #spectrogram.render_to_file(buf=buf, filename="spec.png")
 
-spec_array = spectrogram.render_to_array(buf=buf, grayscale = False, width = 640, height = 480, dyn_range = 180.0)
+spec_array = spectrogram.render_to_array(buf=buf, grayscale = True, width = 640, height = 480, dyn_range = 180.0)
 #print(spec_array)
+
 print("Saving file...")
-mpimg.imsave("test.png", spec_array)
+pyplot.imsave("test.png", spec_array, vmin = 0.0, vmax = 1.0, cmap = pyplot.cm.gray)
