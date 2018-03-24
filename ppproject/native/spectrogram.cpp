@@ -548,17 +548,14 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
   }
 
   double max_mag = 0.0;
-  for (int w = 0; w < render->width; w++)
+  for (int current_x = 0; current_x < render->width; current_x++)
   {
-    // TODO: Remove
     double* data = spec->time_domain;
     int datalen = 2 * speclen;
-    int indx = w;
-    int total = render->width;
     std::memset(data, 0, datalen * sizeof(data[0]));
 
-    // read_mono_audio(infile, filelen, spec->time_domain, 2 * speclen, w, render->width);
-    int start = (indx * filelen) / total - datalen / 2;
+    // Watch out integer overflow here, as indx * filelen can produce a number greater than 2^31.
+    int start = int((u64(current_x) * u64(filelen)) / render->width) - datalen / 2;
     if (start < 0)
     {
       // Fill negative indices with zeros
@@ -573,7 +570,7 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
 
     double single_max = calc_magnitude_spectrum(spec);
     max_mag = std::max(max_mag, single_max);
-    interp_spec(mag_spec[w], render->height, spec->mag_spec, speclen, render, samplerate);
+    interp_spec(mag_spec[current_x], render->height, spec->mag_spec, speclen, render, samplerate);
   }
 
   destroy_spectrum(spec);
