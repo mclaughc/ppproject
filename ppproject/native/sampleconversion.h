@@ -1,5 +1,7 @@
 #pragma once
+#include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace SampleConversion {
 using SampleType = float;
@@ -9,6 +11,13 @@ template<typename T>
 T Clamp(T val, T min, T max)
 {
   return (val < min) ? min : ((val > max) ? max : val);
+}
+
+// Helper function for near equal comparison
+template<typename T>
+T NearEqual(T lhs, T rhs, T epsilon = std::numeric_limits<T>::epsilon())
+{
+  return std::abs(lhs - rhs) <= epsilon;
 }
 
 // Conversion methods.

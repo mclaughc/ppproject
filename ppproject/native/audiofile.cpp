@@ -111,7 +111,7 @@ int64_t FileReader::ReadFrames(SampleBuffer* buf, int64_t count)
 {
   // TODO: Optimize this. Remove the extra copy.
   std::unique_ptr<double[]> tmp = std::make_unique<double[]>(count * buf->GetChannels());
-  int64_t actual_count = sf_read_double(m_file, tmp.get(), count);
+  int64_t actual_count = sf_readf_double(m_file, tmp.get(), count);
   if (actual_count > 0)
     buf->WriteFrames<double>(tmp.get(), static_cast<int>(actual_count));
   m_current_frame += actual_count;
@@ -129,7 +129,7 @@ SampleBuffer* FileReader::ReadAll() const
   int64_t frame_count = info.frames;
   int64_t sample_count = frame_count * GetChannels();
   std::unique_ptr<double[]> tmp = std::make_unique<double[]>(sample_count);
-  if (sample_count > 0 && sf_read_double(m_file, tmp.get(), frame_count) != frame_count)
+  if (sample_count > 0 && sf_readf_double(m_file, tmp.get(), frame_count) != frame_count)
     throw std::runtime_error("reading samples from file failed");
 
   // return to the original position
@@ -220,7 +220,7 @@ int64_t FileWriter::WriteFrames(SampleBuffer* buf, int64_t count)
   // TODO: Optimize this. Remove the extra copy.
   std::unique_ptr<double[]> tmp = std::make_unique<double[]>(count * buf->GetChannels());
   int64_t actual_count = buf->ReadFrames<double>(tmp.get(), static_cast<int>(count));
-  return sf_write_double(m_file, tmp.get(), actual_count);
+  return sf_writef_double(m_file, tmp.get(), actual_count);
 }
 
 int64_t FileWriter::WriteAll(SampleBuffer* buf)

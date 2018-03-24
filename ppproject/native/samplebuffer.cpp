@@ -6,6 +6,8 @@ PYBIND11_MODULE(samplebuffer, m)
 {
   py::class_<SampleBuffer> samplebuffer(m, "SampleBuffer");
   samplebuffer.def(py::init<int, int>())
+    .def("get_sample_rate", &SampleBuffer::GetSampleRate)
+    .def("get_channels", &SampleBuffer::GetChannels)
     .def("get_read_position", &SampleBuffer::GetReadPosition)
     .def("get_write_position", &SampleBuffer::GetWritePosition)
     .def("set_read_position", &SampleBuffer::SetReadPosition)

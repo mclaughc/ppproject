@@ -116,9 +116,10 @@ public:
   {
     if ((m_write_position * m_channels) == m_samples.size())
       m_samples.resize(m_samples.size() + m_channels);
-    size_t spos = m_read_position * m_channels;
+    size_t spos = m_write_position * m_channels;
     for (int i = 0; i < m_channels; i++)
       m_samples[spos++] = SampleConversion::ConvertFrom<ValueType>(samples[i]);
+    m_write_position++;
   }
 
   // Removes and returns a new value from the stream.
