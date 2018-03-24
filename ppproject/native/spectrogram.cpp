@@ -23,7 +23,6 @@
 #include <Python.h>
 #include <algorithm>
 #include <array>
-#include <cairo.h>
 #include <cassert>
 #include <climits>
 #include <cmath>
@@ -44,26 +43,48 @@
 
 enum WINDOW_FUNCTION
 {
-  RECTANGULAR = 0,
-  KAISER = 1,
-  NUTTALL = 2,
-  HANN = 3
+  WINDOW_FUNCTION_RECTANGULAR,
+  WINDOW_FUNCTION_KAISER,
+  WINDOW_FUNCTION_NUTTALL,
+  WINDOW_FUNCTION_HANN,
+  WINDOW_FUNCTION_COUNT
 };
 
-static void calc_kaiser_window(double* data, int datalen, double beta);
-static void calc_nuttall_window(double* data, int datalen);
-static void calc_hann_window(double* data, int datalen);
-
-static double besseli0(double x);
-static double factorial(int k);
-
-void calc_kaiser_window(double* data, int datalen, double beta)
+namespace {
+void CalculateKaiserWindow(double* data, int datalen, double beta)
 {
   /*
   **          besseli0 (beta * sqrt (1- (2*x/N).^2))
   ** w (x) =  --------------------------------------,  -N/2 <= x <= N/2
   **                 besseli0 (beta)
   */
+  auto factorial = [](int val) -> double {
+    static double memory[64] = {1.0};
+    static int have_entry = 0;
+
+    assert(val > 0 && val <= (sizeof(memory) / sizeof(memory[0])));
+    if (val < have_entry)
+      return memory[val];
+
+    for (int k = have_entry + 1; k <= val; k++)
+      memory[k] = k * memory[k - 1];
+
+    have_entry = val;
+    return memory[val];
+  };
+
+  auto besseli0 = [&factorial](double x) -> double {
+    double result = 0.0;
+    for (int k = 1; k < 25; k++)
+    {
+      double temp;
+
+      temp = pow(0.5 * x, k) / factorial(k);
+      result += temp * temp;
+    }
+
+    return 1.0 + result;
+  };
 
   double denom = besseli0(beta);
   if (!std::isfinite(denom))
@@ -77,7 +98,7 @@ void calc_kaiser_window(double* data, int datalen, double beta)
   }
 }
 
-void calc_nuttall_window(double* data, int datalen)
+void CalculateNutallWindow(double* data, int datalen)
 {
   // Nuttall window function from http://en.wikipedia.org/wiki/Window_function
   static const std::array<double, 4> a = {{0.355768, 0.487396, 0.144232, 0.012604}};
@@ -88,45 +109,14 @@ void calc_nuttall_window(double* data, int datalen)
   }
 }
 
-void calc_hann_window(double* data, int datalen)
+void CalculateHannWindow(double* data, int datalen)
 {
   // Hann window function from http://en.wikipedia.org/wiki/Window_function
   for (int k = 0; k < datalen; k++)
     data[k] = 0.5 * (1.0 - std::cos(2.0 * M_PI * k / (datalen - 1)));
 }
 
-/*==============================================================================
- */
-
-double besseli0(double x)
-{
-  double result = 0.0;
-  for (int k = 1; k < 25; k++)
-  {
-    double temp;
-
-    temp = pow(0.5 * x, k) / factorial(k);
-    result += temp * temp;
-  }
-
-  return 1.0 + result;
-}
-
-double factorial(int val)
-{
-  static double memory[64] = {1.0};
-  static int have_entry = 0;
-
-  assert(val > 0 && val <= (sizeof(memory) / sizeof(memory[0])));
-  if (val < have_entry)
-    return memory[val];
-
-  for (int k = have_entry + 1; k <= val; k++)
-    memory[k] = k * memory[k - 1];
-
-  have_entry = val;
-  return memory[val];
-}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class FrequencyDomain
 {
@@ -174,16 +164,16 @@ FrequencyDomain::FrequencyDomain(int speclen_, WINDOW_FUNCTION wfunc_) : speclen
 
   switch (wfunc)
   {
-    case RECTANGULAR:
+    case WINDOW_FUNCTION_RECTANGULAR:
       break;
-    case KAISER:
-      calc_kaiser_window(window, 2 * speclen, 20.0);
+    case WINDOW_FUNCTION_KAISER:
+      CalculateKaiserWindow(window, 2 * speclen, 20.0);
       break;
-    case NUTTALL:
-      calc_nuttall_window(window, 2 * speclen);
+    case WINDOW_FUNCTION_NUTTALL:
+      CalculateNutallWindow(window, 2 * speclen);
       break;
-    case HANN:
-      calc_hann_window(window, 2 * speclen);
+    case WINDOW_FUNCTION_HANN:
+      CalculateHannWindow(window, 2 * speclen);
       break;
     default:
       throw std::invalid_argument("unknown window function");
@@ -202,7 +192,7 @@ FrequencyDomain::~FrequencyDomain()
 void FrequencyDomain::Calculate()
 {
   int freqlen = 2 * speclen;
-  if (wfunc != RECTANGULAR)
+  if (wfunc != WINDOW_FUNCTION_RECTANGULAR)
   {
     for (int k = 0; k < freqlen; k++)
       time_domain[k] *= window[k];
@@ -227,229 +217,73 @@ void FrequencyDomain::Calculate()
   mag_spec[speclen] = fabs(freq_domain[speclen]);
 }
 
-struct RENDER
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+struct Spectrogram
 {
-  cairo_surface_t* surface = nullptr;
+  Spectrogram(int sample_rate_, int width_, int height_, bool log_freq_, bool grayscale_, float min_freq_,
+              float max_freq_, float fft_freq_, float dyn_range_, WINDOW_FUNCTION window_func_);
+  ~Spectrogram();
+
+  void Calculate(const SampleBuffer* buf);
+
+  template<typename SetPixelFunction>
+  void Render(SetPixelFunction set_pixel);
+
+public:
+  // Map values from the spectrogram onto an array of magnitudes, the values for display. Reads spec[0..speclen], writes
+  // mag[0..maglen-1].
+  void MapToMagnitudeArray(float* mag, const double* spec, int speclen) const;
+
+  // Map the index for an output pixel in a column to an index into the FFT result representing the same frequency.
+  // magindex is from 0 to maglen-1, representing min_freq to max_freq Hz.
+  // Return values from are from 0 to speclen representing frequencies from 0 to the Nyquist frequency.
+  // The result is a floating point number as it may fall between elements, allowing the caller to interpolate onto the
+  // input array.
+  double MagIndexToSpecIndex(int speclen, int maglen, int magindex) const;
+
+  // Map a magnitude to a RGB colour value.
+  void GetColorMapValue(float value, u8 color[3]) const;
+
+  int sample_rate;
   int width, height;
   bool log_freq, gray_scale;
   double min_freq, max_freq, fft_freq;
-  WINDOW_FUNCTION window_function;
+  WINDOW_FUNCTION window_func;
   double spec_floor_db;
-
-  ~RENDER()
-  {
-    if (surface)
-      cairo_surface_destroy(surface);
-  }
+  double max_mag;
 };
 
-static void get_colour_map_value(float value, double spec_floor_db, unsigned char colour[3], bool gray_scale)
+Spectrogram::Spectrogram(int sample_rate_, int width_, int height_, bool log_freq_, bool grayscale_, float min_freq_,
+                         float max_freq_, float fft_freq_, float dyn_range_, WINDOW_FUNCTION window_func_)
+  : sample_rate(sample_rate_), width(width_), height(height_), log_freq(log_freq_), gray_scale(grayscale_),
+    min_freq(min_freq_), max_freq(max_freq_), fft_freq(fft_freq_), spec_floor_db(-std::abs(dyn_range_)),
+    window_func(window_func_)
 {
-  static unsigned char map[][3] = {
-    /* These values were originally calculated for a dynamic range of 180dB.
-     */
-    {255, 255, 255}, /* -0dB */
-    {240, 254, 216}, /* -10dB */
-    {242, 251, 185}, /* -20dB */
-    {253, 245, 143}, /* -30dB */
-    {253, 200, 102}, /* -40dB */
-    {252, 144, 66},  /* -50dB */
-    {252, 75, 32},   /* -60dB */
-    {237, 28, 41},   /* -70dB */
-    {214, 3, 64},    /* -80dB */
-    {183, 3, 101},   /* -90dB */
-    {157, 3, 122},   /* -100dB */
-    {122, 3, 126},   /* -110dB */
-    {80, 2, 110},    /* -120dB */
-    {45, 2, 89},     /* -130dB */
-    {19, 2, 70},     /* -140dB */
-    {1, 3, 53},      /* -150dB */
-    {1, 3, 37},      /* -160dB */
-    {1, 2, 19},      /* -170dB */
-    {0, 0, 0},       /* -180dB */
-  };
+  if (sample_rate < 1)
+    throw std::invalid_argument("sample rate must be positive");
+  if (width < 1 || height < 1)
+    throw std::invalid_argument("width/height must be positive");
+  if (min_freq < 0.0f)
+    throw std::invalid_argument("min_freq cannot be negative");
+  if (fft_freq < 0.0f)
+    throw std::invalid_argument("fft_freq cannot be negative");
+  if (window_func < 0 || window_func >= WINDOW_FUNCTION_COUNT)
+    throw std::invalid_argument("invalid window function specified");
 
-  float rem;
-  int indx;
+  if (max_freq == 0.0)
+    max_freq = static_cast<double>(sample_rate_) / 2.0;
+  if (min_freq == 0.0 && log_freq)
+    min_freq = 20.0;
 
-  if (gray_scale)
-  {           /* "value" is a negative value in decibels.
-               * black (0,0,0) is for <= -180.0, and the other 255 values
-               * should cover the range from -180 to 0 evenly.
-               * (value/spec_floor_db) is >=0.0  and <1.0
-               * because both value and spec_floor_db are negative.
-               * (v/s) * 255.0 goes from 0.0 to 254.9999999 and
-               * floor((v/s) * 255) gives us 0 to 254
-               * converted to 255 to 1 by subtracting it from 255. */
-    int gray; /* The pixel value */
-
-    if (value <= spec_floor_db)
-      gray = 0;
-    else
-    {
-      gray = 255 - lrint(floor((value / spec_floor_db) * 255.0));
-      assert(gray >= 1 && gray <= 255);
-    }
-    colour[0] = colour[1] = colour[2] = gray;
-    return;
-  }
-
-  if (value >= 0.0)
+  /* Do this sanity check here, as soon as max_freq has its default value */
+  if (min_freq >= max_freq)
   {
-    colour[0] = colour[1] = colour[2] = 255;
-    return;
-  }
-
-  value = fabs(value * (-180.0 / spec_floor_db) * 0.1);
-
-  indx = lrintf(floor(value));
-
-  if (indx < 0)
-    throw std::runtime_error(StringFromFormat("colour map array index is %d", indx));
-
-  if (indx >= (sizeof(map) / sizeof(map[0])))
-  {
-    colour[0] = colour[1] = colour[2] = 0;
-    return;
-  }
-
-  rem = fmod(value, 1.0);
-
-  colour[0] = lrintf((1.0 - rem) * map[indx][0] + rem * map[indx + 1][0]);
-  colour[1] = lrintf((1.0 - rem) * map[indx][1] + rem * map[indx + 1][1]);
-  colour[2] = lrintf((1.0 - rem) * map[indx][2] + rem * map[indx + 1][2]);
-}
-
-static void render_spectrogram(cairo_surface_t* surface, double spec_floor_db, float** mag2d, double maxval,
-                               double left, double top, double width, double height, bool gray_scale)
-{
-  unsigned char colour[3] = {0, 0, 0};
-  unsigned char* data;
-  double linear_spec_floor;
-  int w, h, stride;
-
-  stride = cairo_image_surface_get_stride(surface);
-
-  data = cairo_image_surface_get_data(surface);
-  memset(data, 0, stride * cairo_image_surface_get_height(surface));
-
-  linear_spec_floor = pow(10.0, spec_floor_db / 20.0);
-
-  for (w = 0; w < width; w++)
-    for (h = 0; h < height; h++)
-    {
-      int x, y;
-
-      mag2d[w][h] = mag2d[w][h] / maxval;
-      mag2d[w][h] = (mag2d[w][h] < linear_spec_floor) ? spec_floor_db : 20.0 * log10(mag2d[w][h]);
-
-      get_colour_map_value(mag2d[w][h], spec_floor_db, colour, gray_scale);
-
-      y = height + top - 1 - h;
-      x = (w + left) * 4;
-      data[y * stride + x + 0] = colour[2];
-      data[y * stride + x + 1] = colour[1];
-      data[y * stride + x + 2] = colour[0];
-      data[y * stride + x + 3] = 0;
-    }
-
-  cairo_surface_mark_dirty(surface);
-}
-
-/* Helper function:
-** Map the index for an output pixel in a column to an index into the
-** FFT result representing the same frequency.
-** magindex is from 0 to maglen-1, representing min_freq to max_freq Hz.
-** Return values from are from 0 to speclen representing frequencies from
-** 0 to the Nyquist frequency.
-** The result is a floating point number as it may fall between elements,
-** allowing the caller to interpolate onto the input array.
-*/
-static double magindex_to_specindex(int speclen, int maglen, int magindex, double min_freq, double max_freq,
-                                    int samplerate, bool log_freq)
-{
-  double freq; /* The frequency that this output value represents */
-
-  if (!log_freq)
-    freq = min_freq + (max_freq - min_freq) * magindex / (maglen - 1);
-  else
-    freq = min_freq * pow(max_freq / min_freq, (double)magindex / (maglen - 1));
-
-  return (freq * speclen / (samplerate / 2));
-}
-
-/* Map values from the spectrogram onto an array of magnitudes, the values
-** for display. Reads spec[0..speclen], writes mag[0..maglen-1].
-*/
-static void interp_spec(float* mag, int maglen, const double* spec, int speclen, const RENDER* render, int samplerate)
-{
-  int k;
-
-  /* Map each output coordinate to where it depends on in the input array.
-  ** If there are more input values than output values, we need to average
-  ** a range of inputs.
-  ** If there are more output values than input values we do linear
-  ** interpolation between the two inputs values that a reverse-mapped
-  ** output value's coordinate falls between.
-  **
-  ** spec points to an array with elements [0..speclen] inclusive
-  ** representing frequencies from 0 to samplerate/2 Hz. Map these to the
-  ** scale values min_freq to max_freq so that the bottom and top pixels
-  ** in the output represent the energy in the sound at min_ and max_freq Hz.
-  */
-
-  for (k = 0; k < maglen; k++)
-  {
-    // Average the pixels in the range it comes from
-    double this_val =
-      magindex_to_specindex(speclen, maglen, k, render->min_freq, render->max_freq, samplerate, render->log_freq);
-    double next =
-      magindex_to_specindex(speclen, maglen, k + 1, render->min_freq, render->max_freq, samplerate, render->log_freq);
-
-    // Range check: can happen if --max-freq > samplerate / 2
-    if (this_val > speclen)
-    {
-      mag[k] = 0.0;
-      return;
-    }
-
-    if (next > this_val + 1)
-    {
-      /* The output indices are more sparse than the input
-       *indices
-       ** so average the range of input indices that map to
-       *this output,
-       ** making sure not to exceed the input array
-       *(0..speclen inclusive)
-       */
-      /* Take a proportional part of the first sample */
-      double count = 1.0 - (this_val - floor(this_val));
-      double sum = spec[(int)this_val] * count;
-
-      while ((this_val += 1.0) < next && (int)this_val <= speclen)
-      {
-        sum += spec[(int)this_val];
-        count += 1.0;
-      }
-      /* and part of the last one */
-      if ((int)next <= speclen)
-      {
-        sum += spec[(int)next] * (next - floor(next));
-        count += next - floor(next);
-      }
-
-      mag[k] = sum / count;
-    }
-    else
-    /* The output indices are more densely packed than the input indices
-    ** so interpolate between input values to generate more output values.
-    */
-    { /* Take a weighted average of the nearest values */
-      mag[k] = spec[(int)this_val] * (1.0 - (this_val - floor(this_val))) +
-               spec[(int)this_val + 1] * (this_val - floor(this_val));
-    }
+    throw std::invalid_argument(StringFromFormat("min_freq (%g) must be less than max_freq (%g)", min_freq, max_freq));
   }
 }
+
+Spectrogram::~Spectrogram() {}
 
 /* Pick the best FFT length good for FFTW?
 **
@@ -491,26 +325,26 @@ static bool is_good_speclen(int n)
 // Currently, the spectrogram generation is not reentrant.
 // This is due to caching the fftw plans.
 static std::mutex s_render_mutex;
+static float** s_mag_spec = nullptr;
+static int s_last_width = 0;
+static int s_last_height = 0;
 
-static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
+void Spectrogram::Calculate(const SampleBuffer* buf)
 {
-  if (render->width < 1 || render->height < 1)
-    throw std::invalid_argument("width and height must be >= 1");
-
-  const int samplerate = inbuf->GetSampleRate();
-  const int filelen = inbuf->GetSize();
+  const int samplerate = buf->GetSampleRate();
+  const int filelen = buf->GetSize();
 
   /*
   ** Choose a speclen value, the spectrum length.
   ** The FFT window size is twice this.
   */
   int speclen;
-  if (render->fft_freq != 0.0)
+  if (fft_freq != 0.0)
     /* Choose an FFT window size of 1/fft_freq seconds of audio */
-    speclen = (samplerate / render->fft_freq + 1) / 2;
+    speclen = (samplerate / fft_freq + 1) / 2;
   else
     /* Long enough to represent frequencies down to 20Hz. */
-    speclen = render->height * (samplerate / 20 / render->height + 1);
+    speclen = height * (samplerate / 20 / height + 1);
 
   /* Find the nearest fast value for the FFT size. */
   for (int d = 0; /* Will terminate */; d++)
@@ -525,41 +359,43 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
     /* FFT length must also be >= the output height,
     ** otherwise repeated pixel rows occur in the output.
     */
-    if (speclen - d >= render->height && is_good_speclen(speclen - d))
+    if (speclen - d >= height && is_good_speclen(speclen - d))
     {
       speclen -= d;
       break;
     }
   }
 
-  std::lock_guard<std::mutex> guard(s_render_mutex);
-
-  static float** mag_spec = nullptr;
-  static int last_width = 0;
-  static int last_height = 0;
-  if (!mag_spec || last_width != render->width || last_height != render->height)
+  if (!s_mag_spec || s_last_width != width || s_last_height != height)
   {
-    last_width = render->width;
-    last_height = render->height;
-    mag_spec = new float*[last_width];
-    for (int w = 0; w < last_width; w++)
-      mag_spec[w] = new float[last_height];
+    if (s_mag_spec)
+    {
+      for (int w = 0; w < s_last_width; w++)
+        delete[] s_mag_spec[w];
+      delete[] s_mag_spec;
+    }
+
+    s_last_width = width;
+    s_last_height = height;
+    s_mag_spec = new float*[s_last_width];
+    for (int w = 0; w < s_last_width; w++)
+      s_mag_spec[w] = new float[s_last_height];
   }
 
 #ifndef _OPENMP
   static std::unique_ptr<FrequencyDomain> spec;
-  if (!spec || spec->GetLength() != speclen || spec->GetWindowFunction() != render->window_function)
-    spec = std::make_unique<FrequencyDomain>(speclen, render->window_function);
+  if (!spec || spec->GetLength() != speclen || spec->GetWindowFunction() != window_func)
+    spec = std::make_unique<FrequencyDomain>(speclen, window_func);
 
-  double max_mag = 0.0;
-  for (int current_x = 0; current_x < render->width; current_x++)
+  max_mag = 0.0;
+  for (int current_x = 0; current_x < width; current_x++)
   {
     double* data = spec->GetInputData();
     int datalen = spec->GetInputCount();
     std::memset(data, 0, datalen * sizeof(data[0]));
 
     // Watch out integer overflow here, as indx * filelen can produce a number greater than 2^31.
-    int start = int((u64(current_x) * u64(filelen)) / render->width) - datalen / 2;
+    int start = int((u64(current_x) * u64(filelen)) / width) - datalen / 2;
     if (start < 0)
     {
       // Fill negative indices with zeros
@@ -570,12 +406,12 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
     if ((start + datalen) > filelen)
       datalen -= (start + datalen) - filelen;
     for (int i = 0; i < datalen; i++)
-      data[i] = SampleConversion::ConvertTo<double>(*inbuf->GetPeekPointer(start + i));
+      data[i] = SampleConversion::ConvertTo<double>(*buf->GetPeekPointer(start + i));
 
     spec->Calculate();
     max_mag = std::max(max_mag, spec->GetMaxMagnitude());
 
-    interp_spec(mag_spec[current_x], render->height, spec->GetOutputMagnitudes(), speclen, render, samplerate);
+    MapToMagnitudeArray(s_mag_spec[current_x], spec->GetOutputMagnitudes(), speclen);
   }
 
 #else
@@ -585,14 +421,14 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
   for (int i = 0; i < omp_get_max_threads(); i++)
   {
     auto& spec = specs.at(i);
-    if (!spec || spec->GetLength() != speclen || spec->GetWindowFunction() != render->window_function)
-      spec = std::make_unique<FrequencyDomain>(speclen, render->window_function);
+    if (!spec || spec->GetLength() != speclen || spec->GetWindowFunction() != window_func)
+      spec = std::make_unique<FrequencyDomain>(speclen, window_func);
   }
 
-  double max_mag = 0.0;
+  max_mag = 0.0;
 
 #pragma omp parallel for schedule(static) reduction(max : max_mag)
-  for (int current_x = 0; current_x < render->width; current_x++)
+  for (int current_x = 0; current_x < width; current_x++)
   {
     FrequencyDomain* spec = specs.at(omp_get_thread_num()).get();
     double* data = spec->GetInputData();
@@ -600,7 +436,7 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
     std::memset(data, 0, datalen * sizeof(data[0]));
 
     // Watch out integer overflow here, as indx * filelen can produce a number greater than 2^31.
-    int start = int((u64(current_x) * u64(filelen)) / render->width) - datalen / 2;
+    int start = int((u64(current_x) * u64(filelen)) / width) - datalen / 2;
     if (start < 0)
     {
       // Fill negative indices with zeros
@@ -611,104 +447,216 @@ static void render_to_surface(const RENDER* render, const SampleBuffer* inbuf)
     if ((start + datalen) > filelen)
       datalen -= (start + datalen) - filelen;
     for (int i = 0; i < datalen; i++)
-      data[i] = SampleConversion::ConvertTo<double>(*inbuf->GetPeekPointer(start + i));
+      data[i] = SampleConversion::ConvertTo<double>(*buf->GetPeekPointer(start + i));
 
     spec->Calculate();
     max_mag = std::max(max_mag, spec->GetMaxMagnitude());
 
-    interp_spec(mag_spec[current_x], render->height, spec->GetOutputMagnitudes(), speclen, render, samplerate);
+    MapToMagnitudeArray(s_mag_spec[current_x], spec->GetOutputMagnitudes(), speclen);
   }
 
 #endif
-
-  render_spectrogram(render->surface, render->spec_floor_db, mag_spec, max_mag, 0, 0, render->width, render->height,
-                     render->gray_scale);
 }
 
-static RENDER setup_render(SampleBuffer* buf, int width, int height, bool log_freq, bool grayscale, float min_freq,
-                           float max_freq, float fft_freq, float dyn_range, const std::string& window_func)
+void Spectrogram::MapToMagnitudeArray(float* mag, const double* spec, int speclen) const
 {
-  if (width < 1 || height < 1)
-    throw std::invalid_argument("width/height must be positive");
-  if (min_freq < 0.0f)
-    throw std::invalid_argument("min_freq cannot be negative");
-  if (fft_freq < 0.0f)
-    throw std::invalid_argument("fft_freq cannot be negative");
+  // Map each output coordinate to where it depends on in the input array.
+  // If there are more input values than output values, we need to average a range of inputs.
 
-  RENDER render = {};
-  render.width = width;
-  render.height = height;
-  render.log_freq = log_freq;
-  render.gray_scale = grayscale;
-  render.min_freq = min_freq;
-  render.max_freq = max_freq;
-  render.fft_freq = fft_freq;
-  render.spec_floor_db = -std::abs(dyn_range);
+  // If there are more output values than input values we do linear interpolation between the two inputs values that a
+  // reverse-mapped output value's coordinate falls between.
 
-  if (window_func == "rectangular")
-    render.window_function = RECTANGULAR;
-  else if (window_func == "kaiser")
-    render.window_function = KAISER;
-  else if (window_func == "nuttall")
-    render.window_function = NUTTALL;
-  else if (window_func == "hann")
-    render.window_function = HANN;
-  else
-    throw std::invalid_argument("unknown window function");
+  // spec points to an array with elements [0..speclen] inclusive representing frequencies from 0 to samplerate/2 Hz.
+  // Map these to the scale values min_freq to max_freq so that the bottom and top pixels in the output represent the
+  // energy in the sound at min_ and max_freq Hz.
 
-  if (render.max_freq == 0.0)
-    render.max_freq = static_cast<double>(buf->GetSampleRate()) / 2.0;
-  if (render.min_freq == 0.0 && render.log_freq)
-    render.min_freq = 20.0;
-
-  /* Do this sanity check here, as soon as max_freq has its default value */
-  if (render.min_freq >= render.max_freq)
+  for (int k = 0; k < height; k++)
   {
-    throw std::invalid_argument(
-      StringFromFormat("min_freq (%g) must be less than max_freq (%g)", render.min_freq, render.max_freq));
-  }
+    // Average the pixels in the range it comes from
+    double this_val = MagIndexToSpecIndex(speclen, height, k);
+    double next = MagIndexToSpecIndex(speclen, height, k + 1);
 
-  render.surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
-  if (!render.surface || cairo_surface_status(render.surface) != CAIRO_STATUS_SUCCESS)
-  {
-    throw std::runtime_error(StringFromFormat("Error while creating surface : %s",
-                                              cairo_status_to_string(cairo_surface_status(render.surface))));
-  }
+    // Range check: can happen if --max-freq > samplerate / 2
+    if (this_val > speclen)
+    {
+      mag[k] = 0.0;
+      return;
+    }
 
-  cairo_surface_flush(render.surface);
-  return render;
+    if (next > this_val + 1)
+    {
+      // The output indices are more sparse than the input indices, so average the range of input indices that map to
+      // this output, making sure not to exceed the input array (0..speclen inclusive) Take a proportional part of the
+      // first sample.
+      double count = 1.0 - (this_val - floor(this_val));
+      double sum = spec[(int)this_val] * count;
+      while ((this_val += 1.0) < next && (int)this_val <= speclen)
+      {
+        sum += spec[(int)this_val];
+        count += 1.0;
+      }
+
+      // and part of the last one
+      if ((int)next <= speclen)
+      {
+        sum += spec[(int)next] * (next - floor(next));
+        count += next - floor(next);
+      }
+
+      mag[k] = sum / count;
+    }
+    else
+    {
+      // The output indices are more densely packed than the input indices so interpolate between input values to
+      // generate more output values. Take a weighted average of the nearest values.
+      mag[k] = spec[(int)this_val] * (1.0 - (this_val - floor(this_val))) +
+               spec[(int)this_val + 1] * (this_val - floor(this_val));
+    }
+  }
 }
+
+double Spectrogram::MagIndexToSpecIndex(int speclen, int maglen, int magindex) const
+{
+  // The frequency that this output value represents.
+  double freq;
+  if (!log_freq)
+    freq = min_freq + (max_freq - min_freq) * magindex / (maglen - 1);
+  else
+    freq = min_freq * std::pow(max_freq / min_freq, double(magindex) / (maglen - 1));
+
+  return (freq * speclen / (sample_rate / 2));
+}
+
+void Spectrogram::GetColorMapValue(float value, u8 color[3]) const
+{
+  static const u8 map[][3] = {
+    /* These values were originally calculated for a dynamic range of 180dB.
+     */
+    {255, 255, 255}, /* -0dB */
+    {240, 254, 216}, /* -10dB */
+    {242, 251, 185}, /* -20dB */
+    {253, 245, 143}, /* -30dB */
+    {253, 200, 102}, /* -40dB */
+    {252, 144, 66},  /* -50dB */
+    {252, 75, 32},   /* -60dB */
+    {237, 28, 41},   /* -70dB */
+    {214, 3, 64},    /* -80dB */
+    {183, 3, 101},   /* -90dB */
+    {157, 3, 122},   /* -100dB */
+    {122, 3, 126},   /* -110dB */
+    {80, 2, 110},    /* -120dB */
+    {45, 2, 89},     /* -130dB */
+    {19, 2, 70},     /* -140dB */
+    {1, 3, 53},      /* -150dB */
+    {1, 3, 37},      /* -160dB */
+    {1, 2, 19},      /* -170dB */
+    {0, 0, 0},       /* -180dB */
+  };
+
+  if (gray_scale)
+  {           /* "value" is a negative value in decibels.
+               * black (0,0,0) is for <= -180.0, and the other 255 values
+               * should cover the range from -180 to 0 evenly.
+               * (value/spec_floor_db) is >=0.0  and <1.0
+               * because both value and spec_floor_db are negative.
+               * (v/s) * 255.0 goes from 0.0 to 254.9999999 and
+               * floor((v/s) * 255) gives us 0 to 254
+               * converted to 255 to 1 by subtracting it from 255. */
+    int gray; /* The pixel value */
+
+    if (value <= spec_floor_db)
+      gray = 0;
+    else
+    {
+      gray = 255 - std::lrint(std::floor((value / spec_floor_db) * 255.0));
+      assert(gray >= 1 && gray <= 255);
+    }
+    color[0] = color[1] = color[2] = gray;
+    return;
+  }
+
+  if (value >= 0.0)
+  {
+    color[0] = color[1] = color[2] = 255;
+    return;
+  }
+
+  value = fabs(value * (-180.0 / spec_floor_db) * 0.1);
+
+  long indx = std::lrintf(std::floor(value));
+  if (indx < 0)
+    throw std::runtime_error(StringFromFormat("colour map array index is %d", indx));
+
+  if (indx >= (sizeof(map) / sizeof(map[0])))
+  {
+    color[0] = color[1] = color[2] = 0;
+    return;
+  }
+
+  float rem = std::fmod(value, 1.0);
+
+  color[0] = lrintf((1.0 - rem) * map[indx][0] + rem * map[indx + 1][0]);
+  color[1] = lrintf((1.0 - rem) * map[indx][1] + rem * map[indx + 1][1]);
+  color[2] = lrintf((1.0 - rem) * map[indx][2] + rem * map[indx + 1][2]);
+}
+
+template<typename SetPixelFunction>
+void Spectrogram::Render(SetPixelFunction set_pixel)
+{
+  double linear_spec_floor = pow(10.0, spec_floor_db / 20.0);
+
+  for (int x = 0; x < width; x++)
+  {
+    for (int y = 0; y < height; y++)
+    {
+      double mag = s_mag_spec[x][y];
+
+      mag = mag / max_mag;
+      mag = (mag < linear_spec_floor) ? spec_floor_db : 20.0 * std::log10(mag);
+
+      u8 colour[3];
+      GetColorMapValue(mag, colour);
+      set_pixel(x, height - y - 1, colour[0], colour[1], colour[2]);
+    }
+  }
+}
+
+} // namespace
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace py = pybind11;
 
 static py::array_t<float> Py_render_to_array(SampleBuffer* buf, int width = 640, int height = 480,
                                              bool log_freq = false, bool grayscale = false, float min_freq = 0.0f,
                                              float max_freq = 0.0f, float fft_freq = 0.0f, float dyn_range = 180.0f,
-                                             const std::string& window_func = "kaiser")
+                                             int window_func = WINDOW_FUNCTION_KAISER)
 {
-  RENDER render =
-    setup_render(buf, width, height, log_freq, grayscale, min_freq, max_freq, fft_freq, dyn_range, window_func);
-  render_to_surface(&render, buf);
+  std::lock_guard<std::mutex> guard(s_render_mutex);
 
-  const int stride = cairo_image_surface_get_stride(render.surface);
-  const u8* data = cairo_image_surface_get_data(render.surface);
+  Spectrogram render(buf->GetSampleRate(), width, height, log_freq, grayscale, min_freq, max_freq, fft_freq, dyn_range,
+                     static_cast<WINDOW_FUNCTION>(window_func));
+  render.Calculate(buf);
 
-  // Allocate the output array. If we did a round-trip to png and back, imread() would give us a WxHx3 float array.
-  py::array_t<float> out_array({height, width, 3});
-  auto r = out_array.mutable_unchecked<3>();
-  for (int y = 0; y < r.shape(0); y++)
+  // Allocate the output array. If we did a round-trip to png and back, imread() would give us a HxWx3 float array.
+  if (!grayscale)
   {
-    for (int x = 0; x < r.shape(1); x++)
-    {
-      u32 rgba;
-      std::memcpy(&rgba, data + stride * y + x * sizeof(rgba), sizeof(rgba));
-      r(y, x, 0) = float((rgba >> 16) & 0xFF) * (1.0f / 255.0f);
-      r(y, x, 1) = float((rgba >> 8) & 0xFF) * (1.0f / 255.0f);
-      r(y, x, 2) = float(rgba & 0xFF) * (1.0f / 255.0f);
-    }
+    py::array_t<float> out_array({height, width, 3});
+    auto r = out_array.mutable_unchecked<3>();
+    render.Render([&r](int x, int y, u8 red, u8 green, u8 blue) {
+      r(y, x, 0) = float(red) * (1.0f / 255.0f);
+      r(y, x, 1) = float(green) * (1.0f / 255.0f);
+      r(y, x, 2) = float(blue) * (1.0f / 255.0f);
+    });
+    return out_array;
   }
-
-  return out_array;
+  else
+  {
+    py::array_t<float> out_array({height, width});
+    auto r = out_array.mutable_unchecked<2>();
+    render.Render([&r](int x, int y, u8 red, u8 green, u8 blue) { r(y, x) = float(red) * (1.0f / 255.0f); });
+    return out_array;
+  }
 }
 
 PYBIND11_MODULE(spectrogram, m)
@@ -717,5 +665,5 @@ PYBIND11_MODULE(spectrogram, m)
         "Render a spectrogram image to a numpy array, from the given audio buffer", py::arg("buf"),
         py::arg("width") = 640, py::arg("height") = 480, py::arg("log_freq") = false, py::arg("grayscale") = false,
         py::arg("min_freq") = 0.0f, py::arg("max_freq") = 0.0f, py::arg("fft_freq") = 0.0f,
-        py::arg("dyn_range") = 180.0f, py::arg("window_func") = "kaiser");
+        py::arg("dyn_range") = 180.0f, py::arg("window_func") = static_cast<int>(WINDOW_FUNCTION_COUNT));
 }

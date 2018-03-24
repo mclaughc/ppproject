@@ -4,10 +4,10 @@ from ppproject.native.spectrogram import render_to_array as native_render_to_arr
 
 # enumeration of window functions
 class WindowFunction(Enum):
-  RECTANGULAR = "rectangular"
-  KAISER = "kaiser"
-  NUTTALL = "nuttall"
-  HANN = "hann"
+  RECTANGULAR = 0
+  KAISER = 1
+  NUTTALL = 2
+  HANN = 3
 
 def render_to_array(buf, width = 640, height = 480, log_freq = False, grayscale = False,
                     min_freq = 0.0, max_freq = 0.0, fft_freq = 0.0, dyn_range = 180.0,

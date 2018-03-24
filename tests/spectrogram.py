@@ -39,7 +39,7 @@ print("Buffer size", buf.get_size())
 print("Rendering spectrogram...")
 #spectrogram.render_to_file(buf=buf, filename="spec.png")
 
-spec_array = spectrogram.render_to_array(buf=buf, grayscale = True, width = 640, height = 480, dyn_range = 100.0)
+spec_array = spectrogram.render_to_array(buf=buf, grayscale = False, width = 640, height = 480, dyn_range = 180.0)
 #print(spec_array)
 print("Saving file...")
 mpimg.imsave("test.png", spec_array)
