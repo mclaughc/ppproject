@@ -97,7 +97,7 @@ static void ConsoleOutputLogCallback(void* pUserParam, const char* channelName, 
                                      LOGLEVEL level, const char* message)
 {
   if (!s_consoleOutputEnabled || level > s_consoleOutputLevelFilter ||
-      s_consoleOutputChannelFilter.Find(channelName) >= 0)
+	  s_consoleOutputChannelFilter.find(channelName) != std::string::npos)
     return;
 
   if (level > LOGLEVEL_COUNT)
@@ -126,7 +126,7 @@ static void ConsoleOutputLogCallback(void* pUserParam, const char* channelName, 
     Log::FormatLogMessageForDisplay(channelName, functionName, level, message,
                                     [](const char* text, void* hConsole) {
                                       DWORD written;
-                                      WriteConsoleA((HANDLE)hConsole, text, Y_strlen(text), &written, nullptr);
+                                      WriteConsoleA((HANDLE)hConsole, text, DWORD(strlen(text)), &written, nullptr);
                                     },
                                     (void*)hConsole);
 
@@ -142,8 +142,11 @@ static void ConsoleOutputLogCallback(void* pUserParam, const char* channelName, 
 static void DebugOutputLogCallback(void* pUserParam, const char* channelName, const char* functionName, LOGLEVEL level,
                                    const char* message)
 {
-  if (!s_debugOutputEnabled || level > s_debugOutputLevelFilter || s_debugOutputChannelFilter.Find(channelName) >= 0)
+  if (!s_debugOutputEnabled || level > s_debugOutputLevelFilter ||
+      s_consoleOutputChannelFilter.find(channelName) != std::string::npos)
+  {
     return;
+  }
 
   Log::FormatLogMessageForDisplay(channelName, functionName, level, message,
                                   [](const char* text, void*) { OutputDebugStringA(text); });

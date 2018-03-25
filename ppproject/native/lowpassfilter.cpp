@@ -91,9 +91,9 @@ void LowPassFilter::CalculateTaps()
   {
     float mm = float(i) - ((m_num_taps - 1) / 2.0f);
     if (SampleConversion::NearEqual(mm, 0.0f))
-      m_taps[i] = m_lambda / M_PI;
+      m_taps[i] = SampleBuffer::Sample(m_lambda / M_PI);
     else
-      m_taps[i] = float(std::sin(mm * m_lambda) / (mm * M_PI));
+      m_taps[i] = SampleBuffer::Sample(std::sin(mm * m_lambda) / (mm * M_PI));
   }
 }
 

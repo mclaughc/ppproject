@@ -1,3 +1,9 @@
 [submodule "dep/pybind11"]
 	path = dep/pybind11
 	url = https://github.com/pybind/pybind11.git
+[submodule "ppproject/dep/msvc"]
+	path = ppproject/dep/msvc
+	url = https://github.com/mclaughc/ppproject-msvc-libs.git
+[submodule "dep/msvc"]
+	path = dep/msvc
+	url = https://github.com/mclaughc/ppproject-msvc-libs.git

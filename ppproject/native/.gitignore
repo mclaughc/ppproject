@@ -1,0 +1,5 @@
+build/
+*.cpython*.so
+*.pyd
+*.dll
+
