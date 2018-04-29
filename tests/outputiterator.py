@@ -2,8 +2,8 @@ import ppproject
 import logging
 from matplotlib import image as mpimage
 
-INPUT_FILE = "tests/wavs/ibis.wav"
-SEGMENT_LENGTH = 2.0
+INPUT_FILE = "tests/wavs/ff.wav"
+SEGMENT_LENGTH = 60.0
 SEGMENT_OVERLAP_LENGTH = 0.0
 SPECTROGRAM_WIDTH = 640
 SPECTROGRAM_HEIGHT = 480
@@ -47,6 +47,11 @@ for segment in output.get_iterator():
 
   # spec_array is numpy array of 480x680x3. We could feed this to tensorflow, or whatever.
   # For now, let's just write it out to a file.
-  filename = "segment-spec-%d.png" % (segid)
+  filename = "segment-%d-spec.png" % (segid)
   print("Saving spectrogram to %s" % (filename))
   mpimage.imsave(filename, spec_array)
+
+  # Also write the wav out to a file
+  filename = "segment-%d-audio.wav" % (segid)
+  print("Saving audio to %s" % (filename))
+  ppproject.util.bufferio.write_buffer_to_file(buf, filename)

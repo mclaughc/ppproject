@@ -7,6 +7,7 @@ import ppproject.sources as sources
 import ppproject.outputs as outputs
 import ppproject.filters as filters
 import ppproject.spectrogram as spectrogram
+import ppproject.util as util
 
 from ppproject.pipeline import Pipeline, PipelineStage
 from ppproject.filter import Filter, AudioFilter
