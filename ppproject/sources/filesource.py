@@ -46,7 +46,7 @@ class FileSource(PipelineStage):
     self.channels = self.reader.get_channels()
     self.sample_rate = self.reader.get_sample_rate()
     logger.info("%s: opened file %s: %d hz, %d channels, %d frames", self.name, self.filename,
-                self.channels, self.sample_rate, self.reader.get_total_frames())
+                self.sample_rate, self.channels, self.reader.get_total_frames())
 
     # Create the channel
     self.chunk_size_frames = int(math.ceil(self.chunk_size * self.sample_rate))
