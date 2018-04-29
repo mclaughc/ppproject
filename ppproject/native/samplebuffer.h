@@ -153,6 +153,24 @@ public:
     return written_count;
   }
 
+  // Reads frames from the buffer, copying them into samples, without advancing the
+  // internal read pointer.
+  template<typename ValueType>
+  int PeekFrames(ValueType* samples, int num_frames)
+  {
+    // TODO: This loop can be turned into num_frames * m_channels
+    int written_count = 0;
+    size_t in_pos = m_read_position * m_channels;
+    size_t out_pos = 0;
+    while (m_read_position < m_write_position)
+    {
+      for (int i = 0; i < m_channels; i++)
+        samples[out_pos++] = SampleConversion::ConvertTo<ValueType>(m_samples[in_pos++]);
+      written_count++;
+    }
+    return written_count;
+  }
+
   // Writes frames from the buffer, converting from the samples pointer to the
   // internal
   // buffer. samples should be an array of at least channels*num_frames

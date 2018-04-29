@@ -71,6 +71,7 @@ class FileOutput(PipelineStage):
     if (num_frames > 0):
       logger.debug("writing %d frames", num_frames)
       self.output_file.write_frames(buf, num_frames)
+      buf.remove_frames(num_frames)
 
     # If it's the end of the stream, close the output file and increment the counter.
     # This way the next write will go to a new file.

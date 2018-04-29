@@ -167,7 +167,7 @@ public:
   // Returns the actual number of frames written.
   int64_t WriteFrames(SampleBuffer* buf, int64_t count);
 
-  // Writes the entire buffer to the file.
+  // Writes the entire buffer to the file, and advances its read pointer.
   int64_t WriteAll(SampleBuffer* buf);
 
 private:
@@ -217,10 +217,10 @@ void FileWriter::Close()
 
 int64_t FileWriter::WriteFrames(SampleBuffer* buf, int64_t count)
 {
-  // TODO: Optimize this. Remove the extra copy.
-  std::unique_ptr<double[]> tmp = std::make_unique<double[]>(count * buf->GetChannels());
-  int64_t actual_count = buf->ReadFrames<double>(tmp.get(), static_cast<int>(count));
-  return sf_writef_double(m_file, tmp.get(), actual_count);
+  if (buf->IsEmpty())
+    return 0;
+
+  return sf_writef_float(m_file, buf->GetPeekPointer(0), buf->GetSize());
 }
 
 int64_t FileWriter::WriteAll(SampleBuffer* buf)
@@ -228,7 +228,11 @@ int64_t FileWriter::WriteAll(SampleBuffer* buf)
   if (buf->GetSize() == 0)
     return 0;
 
-  return WriteFrames(buf, buf->GetSize());
+  int64_t actual_count = WriteFrames(buf, buf->GetSize());
+  if (actual_count > 0)
+    buf->RemoveFrames(static_cast<int>(actual_count));
+
+  return actual_count;
 }
 
 namespace py = pybind11;
