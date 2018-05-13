@@ -69,6 +69,10 @@ target_link_libraries(spectrogram PRIVATE shared ${FFTW_LIBRARIES})
 pybind11_add_module(lowpassfilter MODULE lowpassfilter.cpp)
 target_link_libraries(lowpassfilter PRIVATE shared)
 
+# noiseremoval module
+pybind11_add_module(noiseremoval MODULE noiseremoval.cpp)
+target_link_libraries(noiseremoval PRIVATE shared)
+
 # copy targets to native directory, so it can be imported from python.
 install(TARGETS samplebuffer audiofile spectrogram lowpassfilter DESTINATION ${CMAKE_CURRENT_SOURCE_DIR})
 
