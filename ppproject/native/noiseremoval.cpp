@@ -16,14 +16,14 @@
 #define M_PI 3.14159265358979323846264338327950288
 #endif
 
-using Sample = SampleBuffer::Sample;
+using Sample = double;
 using SampleVector = std::vector<Sample>;
 
 // Computes min/max of a sample array.
 static std::tuple<Sample, Sample> ComputeMinMax(const SampleVector& samples)
 {
-  SampleBuffer::Sample minval = samples[0];
-  SampleBuffer::Sample maxval = minval;
+  Sample minval = samples[0];
+  Sample maxval = minval;
   for (size_t i = 1; i < samples.size(); i++)
   {
     minval = std::min(minval, samples[i]);
@@ -154,6 +154,7 @@ static Sample ComputeBackgroundNoise(const SampleVector& samples, double N)
   // (1) Find minimum and maximum values of waveform.
   Sample min_val, max_val;
   std::tie(min_val, max_val) = ComputeMinMax(samples);
+  std::fprintf(stderr, "Min: %f, Max: %f\n", min_val, max_val);
 
   // (2) Compute 100-bin histogram.
   Histogram histogram = ComputeHistogram(samples, min_val, max_val);
@@ -163,26 +164,38 @@ static Sample ComputeBackgroundNoise(const SampleVector& samples, double N)
 
   // (4) Calculate mode of histogram.
   Sample mode_intensity = ComputeModeIntensity(histogram);
+  std::fprintf(stderr, "Mode Intensity: %f\n", noise);
 
   // (5) Calculate standard deviation.
   Sample stddev = ComputeStandardDeviation(histogram);
+  std::fprintf(stderr, "stddev: %f\n", noise);
 
   // (6) Calculate background noise.
-  return mode_intensity + (stddev * N);
+  Sample noise = mode_intensity + (stddev * N);
+  std::fprintf(stderr, "Background noise: %f\n", noise);
+  return noise;
 }
 
-// Re-scales from -1..1 to 0..1.
-// TODO: This should be decibels.
-static Sample ScaleInputRange(Sample val)
+static Sample ScaleInputRange(SampleBuffer::Sample val)
 {
-  return val * Sample(0.5) + Sample(0.5);
+  // Scale from -1..1 to 0..1.
+  //const double linear = Clamp(double(val) * 0.5 + 0.5, 0.0, 1.0);
+  const double linear = Clamp(std::abs(val), 0.0, 1.0);
+
+  // Convert to logarithmic/db scale
+  const double db = std::log10(20.0 * std::max(linear, std::numeric_limits<double>::epsilon()));
+  return std::abs(std::max(db, -80.0));
 }
 
 // Re-scales from 0..1 to -1..1.
 // TODO: This should be decibels.
-static Sample ScaleOutputRange(Sample val)
+static Sample ScaleOutputRange(SampleBuffer::Sample orig_sample, Sample sample)
 {
-  return (val - Sample(0.5)) * Sample(2.0);
+  // Convert logarithmic back to linear scale.
+  double linear = std::pow(10.0, sample / 20.0);
+
+  // Preserve the original sign.
+  return (orig_sample < 0.0) ? -linear : linear;
 }
 
 // Performs noise removal on a single channel.
@@ -201,14 +214,14 @@ static void ChannelNoiseRemoval(SampleBuffer* buffer, int channel, double N, int
   for (int i = 0; i < num_frames; i++)
     samples.push_back(ScaleInputRange(buffer->GetPeekPointer(i)[channel]));
 
-  // (6) Compute background noise, and (7) subtract it from all samples, truncating negative values to zero.
+  // (6) Compute background noise, (7) subtract it from all samples, truncating negative values to zero.
   Sample noise = ComputeBackgroundNoise(samples, N);
   for (Sample& sample : samples)
     sample = std::max(sample - noise, Sample(0.0));
 
   // Write samples back to the buffer, scaling to the range of the sample buffer.
   for (int i = 0; i < num_frames; i++)
-    buffer->GetMutablePointer(i)[channel] = ScaleOutputRange(samples[i]);
+    buffer->GetMutablePointer(i)[channel] = ScaleOutputRange(samples[i], buffer->GetMutablePointer(i)[channel]);
 }
 
 // Main entry point from python.
