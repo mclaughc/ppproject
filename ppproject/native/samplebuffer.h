@@ -235,6 +235,18 @@ public:
     return &m_samples[size_t(offset) * m_channels];
   }
 
+  // Returns a mutable pointer to the internally-formatted samples. Offsetting this pointer by zero
+  // results the first channel, by one the second, and so on. Valid values are only guaranteed
+  // until the last channel in a single frame. Use for high-speed access to the audio data,
+  // when format conversion is not necessary.
+  Sample* GetMutablePointer(int offset)
+  {
+    if (offset < 0 || (m_read_position + offset) >= m_write_position)
+      throw std::runtime_error("rpos + offset is past the buffer size");
+
+    return &m_samples[size_t(offset) * m_channels];
+  }
+
   // Inserts n seconds of silence.
   void InsertSilence(float duration) { InsertSilenceFrames(int(duration * m_sample_rate)); }
 
