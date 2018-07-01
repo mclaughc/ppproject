@@ -2,4 +2,10 @@ build/
 *.cpython*.so
 *.pyd
 *.dll
+*.a
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+pybind11/
 
